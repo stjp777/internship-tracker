@@ -45,16 +45,23 @@ def _walk_parts(payload):
 
 
 def _decode_body(msg):
-    best = ""
+    """Longest text/html part, falling back to the longest part of any type.
+
+    Job links live in the HTML alternative; the plain-text one usually
+    strips them, so an HTML part always beats a longer plain-text part.
+    """
+    best_html, best_any = "", ""
     for part in _walk_parts(msg.get("payload", {})):
         data = part.get("body", {}).get("data", "")
         try:
             text = base64.urlsafe_b64decode(data + "===").decode("utf-8", "replace")
         except Exception:
             continue
-        if part.get("mimeType") == "text/html" or len(text) > len(best):
-            best = text if len(text) > len(best) else best
-    return best
+        if part.get("mimeType") == "text/html" and len(text) > len(best_html):
+            best_html = text
+        if len(text) > len(best_any):
+            best_any = text
+    return best_html or best_any
 
 
 def _strip_tags(fragment):

@@ -41,7 +41,11 @@ CREATE TABLE IF NOT EXISTS users (
     webhook    TEXT DEFAULT '',        -- Discord webhook URL
     states     TEXT DEFAULT '[]',      -- JSON list of state codes; [] = all
     categories TEXT DEFAULT '[]',      -- JSON list of categories;  [] = all
-    active     INTEGER DEFAULT 1
+    active     INTEGER DEFAULT 1,
+    -- Highest posting id successfully delivered to this user. Advances only
+    -- after their webhook accepts, so a failed send is retried next run
+    -- instead of being lost.
+    last_posting_id INTEGER DEFAULT 0
 );
 """
 
@@ -83,6 +87,13 @@ def _migrate(conn):
         conn.execute("ALTER TABLE postings ADD COLUMN state TEXT DEFAULT ''")
     if "categories" not in cols:
         conn.execute("ALTER TABLE postings ADD COLUMN categories TEXT DEFAULT '[]'")
+    ucols = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if ucols and "last_posting_id" not in ucols:
+        # Existing users start caught-up rather than being flooded with the
+        # whole backlog on the next run.
+        conn.execute("ALTER TABLE users ADD COLUMN last_posting_id INTEGER DEFAULT 0")
+        conn.execute("UPDATE users SET last_posting_id ="
+                     " (SELECT COALESCE(MAX(id), 0) FROM postings)")
     # Backfill state for rows created before the column existed
     stale = conn.execute(
         "SELECT id, location FROM postings WHERE state = '' OR state IS NULL").fetchall()
@@ -200,8 +211,12 @@ def mark_email_seen(conn, gmail_id):
 
 
 def upsert_user(conn, name, webhook="", states=None, categories=None, active=True):
+    """Create or update a user. New users start caught-up (they are not
+    notified about the existing backlog); re-syncing preferences never
+    rewinds or skips their delivery watermark."""
     conn.execute(
-        "INSERT INTO users (name, webhook, states, categories, active) VALUES (?,?,?,?,?)"
+        "INSERT INTO users (name, webhook, states, categories, active, last_posting_id)"
+        " VALUES (?,?,?,?,?, (SELECT COALESCE(MAX(id), 0) FROM postings))"
         " ON CONFLICT(name) DO UPDATE SET webhook=?, states=?, categories=?, active=?",
         (name, webhook, json.dumps(states or []), json.dumps(categories or []), int(active),
          webhook, json.dumps(states or []), json.dumps(categories or []), int(active)))
@@ -210,6 +225,24 @@ def upsert_user(conn, name, webhook="", states=None, categories=None, active=Tru
 
 def active_users(conn):
     return conn.execute("SELECT * FROM users WHERE active = 1").fetchall()
+
+
+def postings_after(conn, posting_id):
+    """Postings newer than a user's delivery watermark."""
+    return conn.execute(
+        "SELECT * FROM postings WHERE id > ? ORDER BY id ASC", (posting_id,)).fetchall()
+
+
+def set_user_watermark(conn, name, posting_id):
+    conn.execute("UPDATE users SET last_posting_id = ? WHERE name = ?", (posting_id, name))
+    conn.commit()
+
+
+def catch_up_all_users(conn):
+    """Mark every user current without notifying — used by seed runs."""
+    conn.execute("UPDATE users SET last_posting_id ="
+                 " (SELECT COALESCE(MAX(id), 0) FROM postings)")
+    conn.commit()
 
 
 def record_health(conn, source, ok, error_msg=""):

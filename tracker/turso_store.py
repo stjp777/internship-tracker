@@ -9,6 +9,8 @@ Using the HTTP API instead of the native libsql driver keeps this
 dependency-free (just `requests`) and identical across Windows machines
 and GitHub Actions runners.
 """
+import time
+
 import requests
 
 
@@ -65,18 +67,36 @@ class TursoConn:
             "Content-Type": "application/json",
         })
 
-    def _pipeline(self, stmts):
+    def _pipeline(self, stmts, retries=3):
         body = {"requests": [{"type": "execute", "stmt": s} for s in stmts]
                 + [{"type": "close"}]}
-        r = self.session.post(f"{self.url}/v2/pipeline", json=body, timeout=self.timeout)
-        r.raise_for_status()
-        results = []
-        for item in r.json().get("results", []):
-            if item.get("type") == "error":
-                raise RuntimeError(f"turso: {item.get('error', {}).get('message')}")
-            if "response" in item and item["response"].get("type") == "execute":
-                results.append(item["response"]["result"])
-        return results
+        last_exc = None
+        for attempt in range(retries):
+            try:
+                r = self.session.post(f"{self.url}/v2/pipeline", json=body,
+                                      timeout=self.timeout)
+                # 5xx and 429 are transient; 4xx means our request is wrong
+                # and retrying it would just repeat the same failure.
+                if r.status_code >= 500 or r.status_code == 429:
+                    raise requests.HTTPError(f"HTTP {r.status_code}", response=r)
+                r.raise_for_status()
+            except (requests.ConnectionError, requests.Timeout, requests.HTTPError) as e:
+                last_exc = e
+                if isinstance(e, requests.HTTPError) and e.response is not None \
+                        and e.response.status_code < 500 and e.response.status_code != 429:
+                    raise
+                if attempt == retries - 1:
+                    break
+                time.sleep(2 ** attempt)  # 1s, 2s
+                continue
+            results = []
+            for item in r.json().get("results", []):
+                if item.get("type") == "error":
+                    raise RuntimeError(f"turso: {item.get('error', {}).get('message')}")
+                if "response" in item and item["response"].get("type") == "execute":
+                    results.append(item["response"]["result"])
+            return results
+        raise last_exc
 
     def execute(self, sql, params=()):
         stmt = {"sql": sql}

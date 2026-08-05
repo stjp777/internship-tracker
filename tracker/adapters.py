@@ -193,20 +193,28 @@ def fetch_google(company, session):
         r = session.get(base, params=params, timeout=TIMEOUT)
         r.raise_for_status()
         t = r.text
-        links = re.findall(r'href="(?:\./)?jobs/results/(\d+)-([a-z0-9-]+)', t)
-        titles = [x for x in re.findall(r'aria-label="Learn more about ([^"]+)"', t)
-                  if x.lower() != "remote eligibility"]  # tooltip link, not a job card
-        pairs = list(dict.fromkeys(links))  # order-preserving unique
+        # Pair each job link with the title from the SAME anchor rather than
+        # zipping two independent lists — Google interleaves other
+        # aria-labelled links ("remote eligibility", share buttons) between
+        # cards, and positional matching would mislabel every later job.
+        pairs = []
+        for m in re.finditer(
+                r'href="(?:\./)?jobs/results/(\d+)-([a-z0-9-]+)[^"]*"[^>]*'
+                r'aria-label="Learn more about ([^"]+)"', t):
+            pairs.append((m.group(1), m.group(2), htmllib.unescape(m.group(3))))
+        if not pairs:
+            # Fall back to link-only extraction with slug-derived titles.
+            for jid, slug in dict.fromkeys(
+                    re.findall(r'href="(?:\./)?jobs/results/(\d+)-([a-z0-9-]+)', t)):
+                pairs.append((jid, slug, slug.replace("-", " ").title()))
         if not pairs:
             break
         new_on_page = 0
-        for i, (jid, slug) in enumerate(pairs):
+        for jid, slug, title in pairs:
             if jid in seen:
                 continue
             seen.add(jid)
             new_on_page += 1
-            title = htmllib.unescape(titles[i]) if i < len(titles) \
-                else slug.replace("-", " ").title()
             out.append({
                 "title": title,
                 "url": f"https://www.google.com/about/careers/applications/jobs/results/{jid}-{slug}",

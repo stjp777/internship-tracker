@@ -19,7 +19,16 @@ python tracker.py daemon         # keep polling on schedule (Ctrl+C to stop)
 ```
 
 Other commands: `poll` (one pass + notify), `poll --company NVIDIA`,
-`gmail` (email check only), `add <url> --company X --title Y`, `list`.
+`gmail` (email check only), `add <url> --company X --title Y`, `list`,
+`sync-users`.
+
+`serve --shared` / `list --shared` read the shared Turso database instead
+of the local copy — use these when the cloud poller is the thing keeping
+data fresh. Statuses you set in shared mode are visible to everyone using
+that database; plain `serve` keeps them private to this machine.
+
+Run the tests with `python -m unittest discover -s tests` (offline — no
+network or credentials needed).
 
 ## How each source works
 
@@ -122,6 +131,15 @@ person's own machine.
 - `users.yaml` (gitignored; see `users.example.yaml`) — friends, their
   webhooks, and their state/category preferences. Sync into the shared
   db with `python tracker.py sync-users`.
+- Delivery is tracked **per user** via a `last_posting_id` watermark that
+  only advances after their webhook accepts the message. A friend whose
+  webhook is broken or offline gets retried on the next run instead of
+  silently missing postings, and one person's outage never suppresses
+  anyone else's. New users start caught-up (no backlog flood); editing
+  their preferences later never rewinds or skips the watermark.
+- The published feed carries a source-health footer, so a broken adapter
+  (the likeliest being Meta rotating its GraphQL `doc_id`) is visible on
+  the page instead of only in the Actions log.
 - `gmail_push.py` — optional, LOCAL ONLY: parses your own Gmail alerts
   with your own OAuth token and pushes just the extracted postings to
   the shared db. OAuth credentials never leave your machine. The Turso

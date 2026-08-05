@@ -116,8 +116,11 @@ PAGE = """
 def create_app(cfg):
     app = Flask(__name__)
     db_path = cfg.get("database", "internships.db")
+    use_shared = cfg.get("use_shared_db", False)
 
     def conn():
+        if use_shared:
+            return db.connect_store(db_path, turso=cfg.get("turso"))
         return db.connect(db_path)
 
     @app.route("/")

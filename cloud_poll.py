@@ -10,21 +10,19 @@ Also works from any machine for testing:
 import sys
 from pathlib import Path
 
-import yaml
-
 BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
 from tracker import db  # noqa: E402
+from tracker.config import load_config  # noqa: E402
 from tracker.fanout import fan_out  # noqa: E402
 from tracker.poller import poll_career_pages  # noqa: E402
 from tracker.render_static import render  # noqa: E402
 
 
 def main():
-    with open(BASE / "config.yaml", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-    conn = db.connect_store()  # requires TURSO_* env vars
+    cfg = load_config(BASE)
+    conn = db.connect_store(turso=cfg.get("turso"))  # TURSO_* env wins
     try:
         seed = "--seed" in sys.argv
         new = poll_career_pages(cfg, conn)
@@ -32,6 +30,9 @@ def main():
         if seed:
             rows = db.unnotified(conn)
             db.mark_notified(conn, [r["id"] for r in rows])
+            # Advance every watermark too, or the next real run would
+            # announce the whole backlog we just suppressed.
+            db.catch_up_all_users(conn)
             print(f"[cloud] seed run: suppressed {len(rows)} notification(s)")
         else:
             fan_out(cfg, conn)

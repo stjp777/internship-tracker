@@ -16,29 +16,17 @@ Run it on your own schedule, e.g. every 20 min via Task Scheduler:
 import sys
 from pathlib import Path
 
-import yaml
-
 BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
 from tracker import db  # noqa: E402
+from tracker.config import load_config  # noqa: E402
 from tracker.filters import PostingFilter  # noqa: E402
 from tracker.gmail_source import fetch_alert_jobs, gmail_available  # noqa: E402
 
 
 def main():
-    with open(BASE / "config.yaml", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-    local_path = BASE / "config.local.yaml"
-    if local_path.exists():
-        with open(local_path, encoding="utf-8") as f:
-            for k, v in (yaml.safe_load(f) or {}).items():
-                cfg[k] = {**cfg[k], **v} if isinstance(cfg.get(k), dict) else v
-    g = cfg.get("gmail", {})
-    for key in ("credentials", "token"):
-        if key in g:
-            g[key] = str(BASE / g[key])
-
+    cfg = load_config(BASE)
     if not gmail_available(cfg):
         print("gmail not configured (credentials.json missing or disabled)")
         return

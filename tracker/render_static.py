@@ -37,6 +37,9 @@ TEMPLATE = """<!doctype html><html><head><meta charset="utf-8">
  .st { display:inline-block; font-size:.68rem; background: var(--chip);
        border-radius:8px; padding:0 .4rem; margin-right:.2rem; }
  @media (max-width: 700px) { .hide-sm { display: none; } }
+ .health { margin-top: 2.5rem; font-size: .75rem; color: var(--muted);
+           border-top: 1px solid var(--line); padding-top: .8rem; }
+ .health .bad { color: #dc2626; font-weight: 600; }
 </style></head><body>
 <h1>Internship Feed <span id="count" class="muted"></span></h1>
 <p class="muted">Updated __UPDATED__ UTC · refreshed every ~30 min ·
@@ -47,6 +50,7 @@ US postings only (remote included) · apply links go to the company's own site</
 <div class="facets"><span class="lbl">Company</span><span id="f-co"></span></div>
 <table><thead><tr><th>First seen</th><th>Company</th><th>Title</th>
 <th class="hide-sm">Location</th></tr></thead><tbody id="rows"></tbody></table>
+<div class="health">__HEALTH__</div>
 <script>
 const DATA = __DATA__;
 const sel = { state: null, cat: null, co: null, q: "" };
@@ -95,6 +99,37 @@ render();
 """
 
 
+def _health_html(conn):
+    """Footer showing which sources are currently failing, so a broken
+    adapter (e.g. Meta rotating its GraphQL doc_id) is visible on the page
+    instead of only in the Actions log."""
+    try:
+        rows = conn.execute("SELECT * FROM source_health ORDER BY source").fetchall()
+    except Exception:
+        return ""
+    broken = [r for r in rows if (r["error_msg"] or "").strip()]
+    ok_names = [r["source"].replace("career:", "") for r in rows
+                if not (r["error_msg"] or "").strip()]
+    parts = []
+    if broken:
+        parts.append('<div class="bad">⚠ Sources failing — postings from these '
+                     'may be missing:</div>')
+        for r in broken:
+            name = html_escape(r["source"].replace("career:", ""))
+            msg = html_escape((r["error_msg"] or "")[:160])
+            when = (r["last_error"] or "")[:16].replace("T", " ")
+            parts.append(f'<div class="bad">{name}</div>'
+                         f'<div>&nbsp;&nbsp;{when} UTC — {msg}</div>')
+    if ok_names:
+        parts.append("<div>Healthy sources: "
+                     + html_escape(", ".join(sorted(ok_names))) + "</div>")
+    return "\n".join(parts)
+
+
+def html_escape(s):
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
 def render(conn, out_path):
     rows = conn.execute(
         "SELECT * FROM postings WHERE status != 'Dismissed'"
@@ -112,6 +147,7 @@ def render(conn, out_path):
         })
     html = (TEMPLATE
             .replace("__UPDATED__", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"))
+            .replace("__HEALTH__", _health_html(conn))
             .replace("__DATA__", json.dumps(data)))
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)

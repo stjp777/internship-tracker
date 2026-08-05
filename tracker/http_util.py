@@ -1,6 +1,5 @@
 """Shared HTTP session with polite defaults and a robots.txt check."""
 import re
-import time
 from urllib.parse import urlsplit
 
 import requests
@@ -106,8 +105,3 @@ def make_session():
     s = requests.Session()
     s.headers.update(BROWSER_HEADERS)
     return s
-
-
-def polite_sleep(seconds):
-    if seconds > 0:
-        time.sleep(seconds)

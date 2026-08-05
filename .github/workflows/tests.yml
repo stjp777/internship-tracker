@@ -1,0 +1,41 @@
+name: Tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-cloud.txt
+      - name: Unit tests (offline — no network or credentials)
+        run: python -m unittest discover -s tests -v
+      - name: Config sanity check
+        run: |
+          python - <<'PY'
+          import yaml, re
+          cfg = yaml.safe_load(open("config.yaml", encoding="utf-8"))
+          f = cfg["filters"]
+          for key in ("base_include_title", "exclude_title", "term"):
+              re.compile(f[key])
+          for c in f["categories"]:
+              re.compile(c["include_title"])
+              if c.get("exclude_title"):
+                  re.compile(c["exclude_title"])
+          types = {"greenhouse","lever","ashby","workday","eightfold",
+                   "amazon","apple","google","meta"}
+          for co in cfg["companies"]:
+              assert co["type"] in types, f"unknown adapter type: {co}"
+          assert not cfg["notifications"]["discord_webhook"], \
+              "discord_webhook must stay empty in the committed config"
+          print(f"config ok: {len(cfg['companies'])} companies, "
+                f"{len(f['categories'])} categories")
+          PY

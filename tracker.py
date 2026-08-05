@@ -22,31 +22,12 @@ BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
 from tracker import db  # noqa: E402
+from tracker.config import load_config  # noqa: E402
 from tracker.poller import poll_career_pages, poll_gmail, flush_notifications, run_once  # noqa: E402
 
 
 def load_cfg():
-    with open(BASE / "config.yaml", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-    # Personal overrides (Discord webhook, gmail toggles, …) live in
-    # config.local.yaml, which is gitignored and never leaves this machine.
-    local = BASE / "config.local.yaml"
-    if local.exists():
-        with open(local, encoding="utf-8") as f:
-            overlay = yaml.safe_load(f) or {}
-        for k, v in overlay.items():
-            if isinstance(v, dict) and isinstance(cfg.get(k), dict):
-                cfg[k] = {**cfg[k], **v}
-            else:
-                cfg[k] = v
-    # resolve relative paths against the project directory
-    for key in ("database",):
-        cfg[key] = str(BASE / cfg.get(key, "internships.db"))
-    g = cfg.get("gmail", {})
-    for key in ("credentials", "token"):
-        if key in g:
-            g[key] = str(BASE / g[key])
-    return cfg
+    return load_config(BASE)
 
 
 def cmd_daemon(cfg):
@@ -96,8 +77,12 @@ def main():
 
     sub.add_parser("gmail", help="check gmail alerts only")
     sub.add_parser("daemon", help="run on schedule forever")
-    sub.add_parser("serve", help="start the dashboard")
-    sub.add_parser("list", help="print newest postings")
+    sv = sub.add_parser("serve", help="start the dashboard")
+    sv.add_argument("--shared", action="store_true",
+                    help="read the shared Turso db instead of the local copy"
+                         " (statuses you set are then visible to everyone)")
+    ls = sub.add_parser("list", help="print newest postings")
+    ls.add_argument("--shared", action="store_true", help="read the shared Turso db")
 
     ap = sub.add_parser("add", help="quick-add a posting URL")
     ap.add_argument("url")
@@ -109,11 +94,15 @@ def main():
 
     args = p.parse_args()
     cfg = load_cfg()
+    shared = getattr(args, "shared", False)
+    if shared:
+        cfg["use_shared_db"] = True
 
     # One-time backfill for rows created before the categories column existed
     if args.cmd in ("poll", "serve", "list", "gmail"):
         from tracker.filters import PostingFilter
-        _conn = db.connect(cfg["database"])
+        _conn = (db.connect_store(cfg["database"], turso=cfg.get("turso")) if shared
+                 else db.connect(cfg["database"]))
         n = db.backfill_categories(_conn, PostingFilter(cfg))
         if n:
             print(f"[migrate] classified {n} existing posting(s) into categories")
@@ -134,6 +123,9 @@ def main():
     elif args.cmd == "serve":
         from tracker.dashboard import create_app
         d = cfg.get("dashboard", {})
+        if shared:
+            print("[serve] reading the SHARED database — status changes are visible"
+                  " to everyone using it")
         create_app(cfg).run(host=d.get("host", "127.0.0.1"), port=int(d.get("port", 5717)))
     elif args.cmd == "add":
         conn = db.connect(cfg["database"])
@@ -158,7 +150,8 @@ def main():
             print(f"synced user: {u['name']}")
         conn.close()
     elif args.cmd == "list":
-        conn = db.connect(cfg["database"])
+        conn = (db.connect_store(cfg["database"], turso=cfg.get("turso")) if shared
+                else db.connect(cfg["database"]))
         rows = conn.execute(
             "SELECT * FROM postings ORDER BY first_seen DESC LIMIT 40").fetchall()
         for r in rows:

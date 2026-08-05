@@ -95,7 +95,16 @@ class TursoConn:
         return _Result([])
 
     def executescript(self, script):
-        stmts = [{"sql": s.strip()} for s in script.split(";") if s.strip()]
+        # Strip `--` line comments before splitting on ';' — a comment that
+        # itself contains a semicolon (e.g. "-- JSON list of codes; [] = all")
+        # would otherwise truncate the statement mid-way and the server
+        # rejects the fragment with "unexpected end of input".
+        cleaned_lines = []
+        for line in script.splitlines():
+            idx = line.find("--")
+            cleaned_lines.append(line[:idx] if idx != -1 else line)
+        cleaned = "\n".join(cleaned_lines)
+        stmts = [{"sql": s.strip()} for s in cleaned.split(";") if s.strip()]
         if stmts:
             self._pipeline(stmts)
         return _Result([])

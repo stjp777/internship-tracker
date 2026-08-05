@@ -150,7 +150,7 @@ def main():
             sys.exit(1)
         with open(users_file, encoding="utf-8") as f:
             spec = yaml.safe_load(f) or {}
-        conn = db.connect_store(cfg["database"])
+        conn = db.connect_store(cfg["database"], turso=cfg.get("turso"))
         for u in spec.get("users", []):
             db.upsert_user(conn, u["name"], webhook=u.get("webhook", ""),
                            states=u.get("states"), categories=u.get("categories"),

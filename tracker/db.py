@@ -54,13 +54,17 @@ def connect(db_path):
     return conn
 
 
-def connect_store(db_path=None):
-    """Local SQLite by default; the shared Turso database when
-    TURSO_DATABASE_URL / TURSO_AUTH_TOKEN are set in the environment.
+def connect_store(db_path=None, turso=None):
+    """Local SQLite by default; the shared Turso database when credentials
+    are available — from TURSO_DATABASE_URL / TURSO_AUTH_TOKEN env vars or
+    a {url, token} dict (e.g. the `turso:` block of config.local.yaml).
     Both speak the same interface, so callers don't care which they get."""
     import os
     url = os.environ.get("TURSO_DATABASE_URL", "").strip()
     token = os.environ.get("TURSO_AUTH_TOKEN", "").strip()
+    if not (url and token) and turso:
+        url = (turso.get("url") or "").strip()
+        token = (turso.get("token") or "").strip()
     if url and token:
         from .turso_store import TursoConn
         conn = TursoConn(url, token)
@@ -68,7 +72,7 @@ def connect_store(db_path=None):
         _migrate(conn)
         return conn
     if not db_path:
-        raise ValueError("no local db path given and no TURSO_* env vars set")
+        raise ValueError("no local db path given and no Turso credentials found")
     return connect(db_path)
 
 

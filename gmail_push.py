@@ -43,8 +43,8 @@ def main():
         print("gmail not configured (credentials.json missing or disabled)")
         return
 
-    local = db.connect(str(BASE / "internships.db"))   # seen-email tracking only
-    shared = db.connect_store()                        # postings go here
+    local = db.connect(str(BASE / "internships.db"))            # seen-email tracking only
+    shared = db.connect_store(turso=cfg.get("turso"))           # postings go here
     pf = PostingFilter(cfg)
     try:
         jobs = fetch_alert_jobs(cfg, local)

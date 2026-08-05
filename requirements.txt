@@ -1,0 +1,6 @@
+requests
+flask
+pyyaml
+windows-toasts
+google-api-python-client
+google-auth-oauthlib

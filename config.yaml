@@ -1,0 +1,124 @@
+# Internship Tracker configuration
+# Edit freely; the poller re-reads this file on every run.
+
+database: internships.db
+
+# --- Filtering ---
+filters:
+  # Gate: a posting must look like an internship at all (title regex):
+  base_include_title: '\bintern(ship)?s?\b|\bco-?op\b|\bapprentice(ship)?\b|student researcher'
+  # Postings whose title matches this are dropped (PhD-only / senior roles):
+  exclude_title: '\b(phd|ph\.?d\.?|doctoral|postdoc|senior|staff|principal|director)\b'
+  # Role categories. A posting can match several; postings that pass the
+  # gate but match no category are tagged "general" (see keep_uncategorized).
+  categories:
+    - name: software
+      include_title: '\b(software|swe|sde|developer|programmer|machine learning|artificial intelligence|ai\b|ai/ml|data (science|scientist|engineer(ing)?|analytics)|computer (science|vision)|research intern|student researcher|security|cyber|cloud|infrastructure|back[- ]?end|front[- ]?end|full[- ]?stack|web dev|mobile|ios\b|android|embedded|firmware|devops|sre\b|site reliability|platform|systems engineer|solutions? architect|robotics|autonomy|perception|compiler|gpu|graphics|quantum|technical program|technology)\b'
+    - name: finance
+      include_title: '\b(finance|financial|accounting|accountant|treasury|audit(or|ing)?|fp&a|corporate development|investment (banking|management)|equity|asset management|wealth management|capital markets|m&a|tax|controller(ship)?|payroll|procurement|economics?|banking|trading|quant(itative)?( finance| analyst| research)?)\b'
+  # Keep gate-passing postings that match no category, tagged "general":
+  keep_uncategorized: true
+  # Timing filter: title or description must mention one of these (regex).
+  # Lenient by default per spec: any 2026/2027 or season mention counts.
+  term: '\b(2026|2027|summer|winter|spring|fall|autumn|co-?op)\b'
+  # If a posting's title matches include_title but no term info is found
+  # anywhere, keep it anyway (true) or drop it (false):
+  keep_if_no_term_info: true
+  # Region filter: keep only US postings (remote included). Postings with no
+  # location info are kept. preferred_states get a star on the dashboard.
+  location:
+    us_only: true
+    preferred_states: [CA]
+
+# --- Company career pages ---
+# type: greenhouse | lever | ashby | workday | eightfold | amazon | apple | google | meta
+companies:
+  - name: Stripe
+    type: greenhouse
+    board: stripe
+  - name: Duolingo
+    type: greenhouse
+    board: duolingo
+  - name: NVIDIA
+    type: workday
+    host: nvidia.wd5.myworkdayjobs.com
+    tenant: nvidia
+    site: NVIDIAExternalCareerSite
+    search: intern
+  - name: Adobe
+    type: workday
+    host: adobe.wd5.myworkdayjobs.com
+    tenant: adobe
+    site: external_experienced
+    search: intern
+  - name: Microsoft
+    type: eightfold
+    host: apply.careers.microsoft.com
+    domain: microsoft.com
+    search: intern
+    location: United States    # server-side filter
+    us_filtered: true
+  # `search:` can be a single string (one fetch, categories classified from
+  # titles) or a per-category mapping — each entry is its own fetch, either
+  # a plain search string or {q: ..., category: <site facet>}.
+  - name: Amazon
+    type: amazon
+    search:
+      software: {q: intern, category: software-development}
+      finance: {q: intern, category: finance-accounting}
+  - name: Apple
+    type: apple
+    search: internship
+    location: united-states-USA   # Apple's URL slug for a US-wide filter
+    us_filtered: true
+  - name: Google
+    type: google
+    search: intern
+    location: United States    # server-side filter
+    us_filtered: true
+  - name: Meta
+    type: meta
+    search: intern
+    # GraphQL persisted-query id captured Aug 2026; if Meta rotates it the
+    # poller logs an error and you can re-capture it (see README).
+    doc_id: "27807005005556827"
+
+# --- Gmail (LinkedIn / Indeed alert emails) ---
+gmail:
+  enabled: true            # silently skipped until credentials.json exists
+  credentials: credentials.json
+  token: token.json
+  # Senders treated as job-alert emails:
+  senders:
+    - jobalerts-noreply@linkedin.com
+    - jobs-noreply@linkedin.com
+    - alert@indeed.com
+    - invitetoapply@indeed.com
+    - noreply@indeed.com
+  # How far back to look on the very first run:
+  initial_lookback_days: 3
+
+# --- Polling schedule (daemon mode) ---
+schedule:
+  career_pages_minutes: 60
+  gmail_minutes: 20
+  # Active window, local time (outside it everything slows to every 3 h):
+  active_start_hour: 7
+  active_end_hour: 23
+  night_minutes: 180
+  # Politeness delay between requests to different companies (seconds):
+  inter_company_delay_seconds: 5
+
+# --- Notifications ---
+# Personal settings (your Discord webhook!) belong in config.local.yaml,
+# which overlays this file and is gitignored.
+notifications:
+  desktop: true            # Windows toast, one per new posting (local mode)
+  discord_webhook: ""      # set in config.local.yaml, NOT here
+  # Safety valve: if one poll finds more than this many new postings
+  # (e.g. the very first run), send one summary instead of a flood:
+  max_individual_per_run: 8
+
+dashboard:
+  host: 127.0.0.1
+  port: 5717

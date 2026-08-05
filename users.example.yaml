@@ -1,0 +1,16 @@
+# Friends registry for the shared tracker. COPY TO users.yaml (gitignored!)
+# and sync into the shared database with:  python tracker.py sync-users
+#
+# states / categories: empty list = everything. Remote-position and
+# unknown-location postings are always included regardless of state filter.
+users:
+  - name: steve
+    webhook: "https://discord.com/api/webhooks/XXXX/YYYY"
+    states: [CA]
+    categories: [software]
+    active: true
+  - name: friend-example
+    webhook: "https://discord.com/api/webhooks/AAAA/BBBB"
+    states: [NY, MA]
+    categories: [finance]
+    active: false

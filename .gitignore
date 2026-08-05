@@ -1,0 +1,10 @@
+# personal / secret — never commit
+config.local.yaml
+users.yaml
+credentials.json
+token.json
+*.db
+site/
+__pycache__/
+*.pyc
+claude_code_prompt.md

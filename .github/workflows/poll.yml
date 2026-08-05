@@ -3,7 +3,12 @@ name: Poll internships
 on:
   schedule:
     - cron: "*/30 * * * *"    # every 30 min (GitHub may delay a few minutes)
-  workflow_dispatch: {}        # manual "Run workflow" button
+  workflow_dispatch:           # manual "Run workflow" button
+    inputs:
+      seed:
+        description: "Seed run: fill the db but suppress notifications"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -28,7 +33,7 @@ jobs:
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-        run: python cloud_poll.py
+        run: python cloud_poll.py ${{ github.event.inputs.seed == 'true' && '--seed' || '' }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

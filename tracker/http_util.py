@@ -34,15 +34,21 @@ def robots_allows(url, user_agent="*"):
                                 headers={"User-Agent": BROWSER_HEADERS["User-Agent"]}, timeout=15)
             if resp.status_code == 200:
                 rp.parse(resp.text.splitlines())
+                rp._debug = f"status=200 len={len(resp.text)} head={resp.text[:120]!r}"
             else:
                 rp.allow_all = True
-        except requests.RequestException:
+                rp._debug = f"status={resp.status_code} -> allow_all"
+        except requests.RequestException as e:
             rp.allow_all = True
+            rp._debug = f"fetch failed ({e}) -> allow_all"
         _robots_cache[origin] = rp
     try:
-        return rp.can_fetch(user_agent, url)
+        allowed = rp.can_fetch(user_agent, url)
     except Exception:
         return True
+    if not allowed:
+        print(f"[robots] {origin} disallows {url} ({getattr(rp, '_debug', '?')})")
+    return allowed
 
 
 def make_session():

@@ -56,7 +56,7 @@ filtered to the US server-side. California postings get a ⭐ and their own
 dashboard tab (`filters.location.prefer` controls what counts as CA).
 Set `us_only: false` to go back to worldwide.
 
-## Gmail setup (one-time, ~5 minutes)
+## Gmail setup (one-time)
 
 1. Create your own LinkedIn and Indeed **job alerts** on their sites
    (saved search → email frequency: daily or instant).

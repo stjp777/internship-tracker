@@ -52,6 +52,8 @@ CITY_STATES = {
     "raleigh": "NC", "durham": "NC", "charlotte": "NC", "minneapolis": "MN",
     "detroit": "MI", "ann arbor": "MI", "madison": "WI", "columbus": "OH",
     "arlington": "VA", "reston": "VA", "herndon": "VA", "washington dc": "DC",
+    "indianapolis": "IN", "west lafayette": "IN", "bloomington": "IN",
+    "south bend": "IN", "fort wayne": "IN",
 }
 
 # Uppercase-only code match so "in"/"or"/"me" in prose never count as states

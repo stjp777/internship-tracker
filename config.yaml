@@ -15,7 +15,9 @@ filters:
     - name: software
       include_title: '\b(software|swe|sde|developer|programmer|machine learning|artificial intelligence|ai\b|ai/ml|data (science|scientist|engineer(ing)?|analytics)|computer (science|vision)|research intern|student researcher|security|cyber|cloud|infrastructure|back[- ]?end|front[- ]?end|full[- ]?stack|web dev|mobile|ios\b|android|embedded|firmware|devops|sre\b|site reliability|platform|systems engineer|solutions? architect|robotics|autonomy|perception|compiler|gpu|graphics|quantum|technical program|technology)\b'
     - name: finance
-      include_title: '\b(finance|financial|accounting|accountant|treasury|audit(or|ing)?|fp&a|corporate development|investment (banking|management)|equity|asset management|wealth management|capital markets|m&a|tax|controller(ship)?|payroll|procurement|economics?|banking|trading|quant(itative)?( finance| analyst| research)?)\b'
+      include_title: '\b(finance|financial|accounting|accountant|treasury|audit(or|ing)?|fp&a|corporate development|investment (banking|management)|equity|asset management|wealth management|capital markets|m&a|tax|controller(ship)?|payroll|procurement|economics?|banking)\b'
+    - name: quantitative
+      include_title: '\b(quant(itative)?( finance| analyst| research(er)?)?|algo(rithmic)? trading|trading strategist|derivatives? trading|market mak(er|ing)|hedge fund)\b'
   # Keep gate-passing postings that match no category, tagged "general":
   keep_uncategorized: true
   # Timing filter: title or description must mention one of these (regex).
@@ -28,7 +30,7 @@ filters:
   # location info are kept. preferred_states get a star on the dashboard.
   location:
     us_only: true
-    preferred_states: [CA]
+    preferred_states: [CA, IN]
 
 # --- Company career pages ---
 # type: greenhouse | lever | ashby | workday | eightfold | amazon | apple | google | meta

@@ -173,6 +173,37 @@ Secrets hygiene: `config.local.yaml` (your webhook), `users.yaml`,
 should stay that way. The public repo contains no tokens; Actions reads
 them from repo secrets.
 
+### Getting LinkedIn/Indeed into the shared feed
+
+`gmail_push.py` (see above) is what pushes LinkedIn/Indeed postings from
+your Gmail alerts into the shared db. It only helps if something actually
+runs it on a schedule. Set that up with:
+
+```
+powershell -ExecutionPolicy Bypass -File setup_gmail_push.ps1
+```
+
+This registers a Task Scheduler job that runs `gmail_push.py` every 20
+minutes (matching `schedule.gmail_minutes`), the same pattern
+`setup_autostart.ps1` uses for the daemon. Once it's running, anything it
+pushes reaches the site and Discord on the next scheduled Actions run,
+same as a career-page posting.
+
+One gotcha worth knowing before you set this up: if your Google OAuth
+consent screen is still in "Testing" publishing status, Google expires
+the refresh token after 7 days no matter where it's used, and the job
+will quietly stop working a week in. Publish the app ("APIs & Services" →
+"OAuth consent screen" → Publish App) before relying on this, then delete
+the old `token.json` and run `python tracker.py gmail` once to get a
+token that won't expire.
+
+Also worth knowing: `tracker.py daemon`/`gmail`/`poll` track "already
+processed" alert emails in the same local `internships.db` file that
+`gmail_push.py` uses. If you ever run the daemon locally for its own
+Gmail step *and* `gmail_push.py` on the same machine, whichever one reads
+an email first marks it processed for both, so the other will never see
+it. Pick one path for Gmail parsing per machine.
+
 ## Maintenance notes
 
 - **Meta**: uses a captured GraphQL `doc_id` (Aug 2026). If Meta rotates it,

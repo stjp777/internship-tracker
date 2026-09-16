@@ -7,6 +7,7 @@ import base64
 import html as htmllib
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
@@ -65,14 +66,33 @@ def _decode_body(msg):
 
 
 def _strip_tags(fragment):
-    return htmllib.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", fragment))).strip()
+    # Strip again after unescaping: "&lt;img onerror=...&gt;" survives the
+    # first pass untouched and would otherwise come back out as live markup.
+    text = htmllib.unescape(re.sub(r"<[^>]+>", " ", fragment))
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text)).strip()
 
 
-# anchor href patterns that identify a job link per provider
+# Path patterns that identify a job link per provider, matched against the
+# url's path only — see _is_job_link, which checks scheme and host separately.
+# Matching these anywhere in the raw href would accept a phishing link like
+# "https://evil.example/login?next=linkedin.com/jobs/view/1", which then goes
+# out to everyone's Discord and onto the public feed.
 JOB_LINK_PATTERNS = {
-    "linkedin": re.compile(r"linkedin\.com/(?:comm/)?jobs/view/\d+", re.I),
-    "indeed": re.compile(r"indeed\.com/(?:rc/clk|pagead/clk|viewjob|m/rc)", re.I),
+    "linkedin": re.compile(r"^/(?:comm/)?jobs/view/\d+", re.I),
+    "indeed": re.compile(r"^/(?:rc/clk|pagead/clk|viewjob|m/rc)", re.I),
 }
+JOB_LINK_HOSTS = {"linkedin": "linkedin.com", "indeed": "indeed.com"}
+
+
+def _is_job_link(href, provider):
+    parts = urlsplit(href)
+    if parts.scheme.lower() not in ("http", "https"):
+        return False
+    host = (parts.hostname or "").lower()
+    domain = JOB_LINK_HOSTS[provider]
+    if host != domain and not host.endswith("." + domain):
+        return False
+    return bool(JOB_LINK_PATTERNS[provider].search(parts.path))
 
 
 def _provider_for(sender):
@@ -86,13 +106,13 @@ def _provider_for(sender):
 
 def extract_jobs_from_html(body_html, provider):
     """Best-effort extraction of (title, company, url) from an alert email."""
-    pattern = JOB_LINK_PATTERNS[provider]
     jobs, seen_urls = [], set()
     for m in re.finditer(r'<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>', body_html, re.S | re.I):
         href, inner = m.group(1), m.group(2)
-        if not pattern.search(href):
-            continue
+        # unescape first: the check must see the same url the browser would
         url = htmllib.unescape(href)
+        if not _is_job_link(url, provider):
+            continue
         # canonical key: LinkedIn job id, or indeed jk= param, else the URL
         key = url
         lm = re.search(r"jobs/view/(\d+)", url)

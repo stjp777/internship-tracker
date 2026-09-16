@@ -20,13 +20,17 @@ def _toast(title, body, url=None):
 
 
 def _discord(webhook_url, content):
+    # Never print the exception itself: it embeds the webhook url, which is a
+    # bearer credential anyone could reuse to post into the channel.
     try:
         r = requests.post(webhook_url, json={"content": content}, timeout=15)
-        r.raise_for_status()
-        return True
-    except Exception as e:
-        print(f"  [notify] discord webhook failed: {e}")
+    except requests.RequestException as e:
+        print(f"  [notify] discord webhook failed ({type(e).__name__})")
         return False
+    if r.status_code >= 400:
+        print(f"  [notify] discord webhook failed (HTTP {r.status_code})")
+        return False
+    return True
 
 
 def notify_new_postings(cfg, rows):

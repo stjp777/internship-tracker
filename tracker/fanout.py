@@ -34,9 +34,17 @@ def _cats_match(user_cats, posting_cats):
 
 
 def _post(webhook, content):
-    """POST to Discord, honouring 429 rate-limit backoff."""
+    """POST to Discord, honouring 429 rate-limit backoff.
+
+    Raises only messages that are safe to print: a webhook url is a bearer
+    credential, and requests' own exceptions embed the full url, which would
+    put it in this repo's public Actions log.
+    """
     for attempt in range(3):
-        r = requests.post(webhook, json={"content": content}, timeout=15)
+        try:
+            r = requests.post(webhook, json={"content": content}, timeout=15)
+        except requests.RequestException as e:
+            raise RuntimeError(f"discord request failed ({type(e).__name__})") from None
         if r.status_code == 429:
             wait = 1.0
             try:
@@ -45,7 +53,8 @@ def _post(webhook, content):
                 pass
             time.sleep(min(wait, 10) + 0.1)
             continue
-        r.raise_for_status()
+        if r.status_code >= 400:
+            raise RuntimeError(f"discord returned HTTP {r.status_code}")
         return
     raise RuntimeError("discord rate-limited after 3 attempts")
 

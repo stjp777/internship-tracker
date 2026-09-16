@@ -1,11 +1,13 @@
 """Local web dashboard: browse postings, set status, quick-add a URL."""
 import json
 
-from flask import Flask, redirect, render_template_string, request
+from flask import Flask, abort, redirect, render_template_string, request
 
 from . import db
 from .filters import PostingFilter
 from .locations import split_states
+
+STATUSES = ("New", "Viewed", "Applied", "Dismissed")
 
 PAGE = """
 <!doctype html><html><head><meta charset="utf-8">
@@ -172,8 +174,11 @@ def create_app(cfg):
 
     @app.route("/status/<int:pid>", methods=["POST"])
     def set_status(pid):
+        status = request.form["status"]
+        if status not in STATUSES:
+            abort(400)
         c = conn()
-        db.set_status(c, pid, request.form["status"])
+        db.set_status(c, pid, status)
         c.close()
         parts = (request.form.get("back", "All|All|All").split("|") + ["All"] * 3)[:3]
         return redirect(f"/?status={parts[0] or 'All'}&state={parts[1] or 'All'}"

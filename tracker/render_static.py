@@ -74,6 +74,12 @@ function counts(rows, fn) {
     (["REMOTE","UNKNOWN"].includes(a[0]) - ["REMOTE","UNKNOWN"].includes(b[0]))
     || (a[0] === "general") - (b[0] === "general") || a[0].localeCompare(b[0]));
 }
+const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+// Scraped/emailed urls are untrusted: only let http(s) through, so a
+// javascript: or data: link can't ride in on a spoofed alert email.
+const safeUrl = u => { const s = String(u).trim().toLowerCase();
+  return (s.startsWith("http://") || s.startsWith("https://")) ? u : "#"; };
 function render() {
   let rows = DATA;
   if (sel.q) { const q = sel.q.toLowerCase();
@@ -86,12 +92,11 @@ function render() {
   if (sel.co) rows = rows.filter(r => r.company === sel.co);
   document.getElementById("count").textContent = "(" + rows.length + " shown)";
   document.getElementById("rows").innerHTML = rows.map(r =>
-    `<tr><td class="muted">${r.seen}</td><td>${r.company}</td>` +
-    `<td><a href="${r.url}" target="_blank" rel="noopener">${r.title
-        .replace(/&/g,"&amp;").replace(/</g,"&lt;")}</a><br>` +
-    r.cats.map(c => `<span class="st">${c}</span>`).join("") + `</td>` +
-    `<td class="hide-sm muted">${r.states.map(s => `<span class="st">${s}</span>`).join("")}` +
-    ` ${r.location.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</td></tr>`).join("");
+    `<tr><td class="muted">${esc(r.seen)}</td><td>${esc(r.company)}</td>` +
+    `<td><a href="${esc(safeUrl(r.url))}" target="_blank" rel="noopener">${esc(r.title)}</a><br>` +
+    r.cats.map(c => `<span class="st">${esc(c)}</span>`).join("") + `</td>` +
+    `<td class="hide-sm muted">${r.states.map(s => `<span class="st">${esc(s)}</span>`).join("")}` +
+    ` ${esc(r.location)}</td></tr>`).join("");
 }
 document.getElementById("q").addEventListener("input", e => { sel.q = e.target.value; render(); });
 render();
@@ -148,7 +153,9 @@ def render(conn, out_path):
     html = (TEMPLATE
             .replace("__UPDATED__", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"))
             .replace("__HEALTH__", _health_html(conn))
-            .replace("__DATA__", json.dumps(data)))
+            # `</` is escaped so a posting containing "</script>" can't close
+            # the script block early and inject markup into the page.
+            .replace("__DATA__", json.dumps(data).replace("</", "<\\/")))
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)
     return len(data)

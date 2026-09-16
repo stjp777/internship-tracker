@@ -41,6 +41,62 @@ companies:
   - name: Duolingo
     type: greenhouse
     board: duolingo
+  # AI-focused
+  - name: Anthropic
+    type: greenhouse
+    board: anthropic
+  - name: Scale AI
+    type: greenhouse
+    board: scaleai
+  - name: Together AI
+    type: greenhouse
+    board: togetherai
+  # Higher intern-req volume
+  - name: Databricks
+    type: greenhouse
+    board: databricks
+  # Fintech
+  - name: Affirm
+    type: greenhouse
+    board: affirm
+  # Requested by name
+  - name: Discord
+    type: greenhouse
+    board: discord
+  # Small/mid tech
+  - name: GitLab
+    type: greenhouse
+    board: gitlab
+  - name: Datadog
+    type: greenhouse
+    board: datadog
+  - name: MongoDB
+    type: greenhouse
+    board: mongodb
+  - name: Dropbox
+    type: greenhouse
+    board: dropbox
+  - name: OpenAI
+    type: ashby
+    board: openai
+  - name: Cohere
+    type: ashby
+    board: cohere
+  - name: Notion
+    type: ashby
+    board: notion
+  - name: Ramp
+    type: ashby
+    board: ramp
+  - name: Modal
+    type: ashby
+    board: modal
+  - name: Hex
+    type: ashby
+    board: hex
+  - name: Spotify
+    type: lever
+    board: spotify
   - name: NVIDIA
     type: workday
     host: nvidia.wd5.myworkdayjobs.com

@@ -7,4 +7,8 @@ token.json
 site/
 __pycache__/
 *.pyc
+
+# local working notes — not part of the project
 claude_code_prompt.md
+CLAUDE.md
+security_review.md

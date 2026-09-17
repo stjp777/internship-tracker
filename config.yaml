@@ -34,88 +34,111 @@ filters:
 
 # --- Company career pages ---
 # type: greenhouse | lever | ashby | workday | eightfold | amazon | apple | google | meta
+# website: the company's domain, used only to show its logo on the feed.
 companies:
   - name: Stripe
     type: greenhouse
     board: stripe
+    website: stripe.com
   - name: Duolingo
     type: greenhouse
     board: duolingo
+    website: duolingo.com
   # AI-focused
   - name: Anthropic
     type: greenhouse
     board: anthropic
+    website: anthropic.com
   - name: Scale AI
     type: greenhouse
     board: scaleai
+    website: scale.com
   - name: Together AI
     type: greenhouse
     board: togetherai
+    website: together.ai
   # Higher intern-req volume
   - name: Databricks
     type: greenhouse
     board: databricks
+    website: databricks.com
   # Fintech
   - name: Affirm
     type: greenhouse
     board: affirm
+    website: affirm.com
   # Requested by name
   - name: Discord
     type: greenhouse
     board: discord
+    website: discord.com
   # Small/mid tech
   - name: GitLab
     type: greenhouse
     board: gitlab
+    website: gitlab.com
   - name: Datadog
     type: greenhouse
     board: datadog
+    website: datadoghq.com
   - name: MongoDB
     type: greenhouse
     board: mongodb
+    website: mongodb.com
   - name: Dropbox
     type: greenhouse
     board: dropbox
+    website: dropbox.com
   - name: OpenAI
     type: ashby
     board: openai
+    website: openai.com
   - name: Cohere
     type: ashby
     board: cohere
+    website: cohere.com
   - name: Notion
     type: ashby
     board: notion
+    website: notion.so
   - name: Ramp
     type: ashby
     board: ramp
+    website: ramp.com
   - name: Modal
     type: ashby
     board: modal
+    website: modal.com
   - name: Hex
     type: ashby
     board: hex
+    website: hex.tech
   - name: Spotify
     type: lever
     board: spotify
+    website: spotify.com
   - name: NVIDIA
     type: workday
     host: nvidia.wd5.myworkdayjobs.com
     tenant: nvidia
     site: NVIDIAExternalCareerSite
     search: intern
+    website: nvidia.com
   - name: Adobe
     type: workday
     host: adobe.wd5.myworkdayjobs.com
     tenant: adobe
     site: external_experienced
     search: intern
+    website: adobe.com
   - name: Microsoft
     type: eightfold
     host: apply.careers.microsoft.com
-    domain: microsoft.com
+    domain: microsoft.com      # Eightfold search param, not the logo
     search: intern
     location: United States    # server-side filter
     us_filtered: true
+    website: microsoft.com
   # `search:` can be a single string (one fetch, categories classified from
   # titles) or a per-category mapping — each entry is its own fetch, either
   # a plain search string or {q: ..., category: <site facet>}.
@@ -124,22 +147,37 @@ companies:
     search:
       software: {q: intern, category: software-development}
       finance: {q: intern, category: finance-accounting}
+    website: amazon.com
   - name: Apple
     type: apple
     search: internship
     location: united-states-USA   # Apple's URL slug for a US-wide filter
     us_filtered: true
+    website: apple.com
   - name: Google
     type: google
     search: intern
     location: United States    # server-side filter
     us_filtered: true
+    website: google.com
   - name: Meta
     type: meta
     search: intern
     # GraphQL persisted-query id captured Aug 2026; if Meta rotates it the
     # poller logs an error and you can re-capture it (see README).
     doc_id: "27807005005556827"
+    website: meta.com
+
+# --- Removing closed postings ---
+# Postings are hidden from the feed, never deleted, and come back if the
+# company lists them again. Anything you marked Applied is always kept.
+removal:
+  # A career-page posting its company stops listing is hidden after this many
+  # days. Skipped entirely while that company's fetch is failing or empty.
+  career_grace_days: 3
+  # LinkedIn/Indeed postings can't be re-checked, so they age out instead.
+  # Manual adds never do.
+  email_max_age_days: 30
 
 # --- Gmail (LinkedIn / Indeed alert emails) ---
 gmail:

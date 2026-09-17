@@ -111,10 +111,24 @@ Greenhouse / Lever / Ashby boards need zero code, just add to config.yaml:
   - name: Figma
     type: greenhouse       # or lever / ashby
     board: figma           # the company's board token (visible in their careers URL)
+    website: figma.com     # optional, shows the company's logo on the feed
 ```
 
 Workday companies: copy the NVIDIA entry and adjust `host`/`tenant`/`site`
 (all visible in the careers site URL).
+
+## Closed postings
+
+Postings clean themselves up. When a company's board stops listing a role
+for three days, it drops off the feed and out of notifications. LinkedIn
+and Indeed postings can't be re-checked that way, so they age out after 30
+days instead. Both numbers live under `removal:` in config.yaml.
+
+Nothing is deleted, only hidden, and a role comes back if the company lists
+it again. Cleanup never runs for a company whose fetch is failing or came
+back empty, since that looks exactly like every role closing at once.
+Anything you marked Applied stays on your dashboard, labeled "closed", and
+manual adds are never aged out.
 
 ## Shared / hosted mode (how the live feed above works)
 
@@ -127,9 +141,10 @@ else's inbox touches the shared database.
 
 ### How the pieces fit together
 
-- `cloud_poll.py`: what Actions runs. `poll_career_pages` → per-user
-  Discord fan-out (`tracker/fanout.py`) → static dashboard render
-  (`tracker/render_static.py`) → Pages deploy.
+- `cloud_poll.py`: what Actions runs. `poll_career_pages` (which also hides
+  closed postings) → per-user Discord fan-out (`tracker/fanout.py`) → static
+  feed render (`tracker/render_static.py`, page template in
+  `tracker/feed.html`) → Pages deploy.
 - `tracker/turso_store.py`: Turso over plain HTTPS. The same code paths
   work against local SQLite (default) or the shared db (when
   `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN` are set). Local single-user

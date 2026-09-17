@@ -2,11 +2,15 @@
 
 No network, no credentials — safe to run anywhere, including CI.
 """
+import io
 import json
 import os
+import re
+import sqlite3
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -16,6 +20,8 @@ from tracker.filters import PostingFilter  # noqa: E402
 from tracker.gmail_source import extract_jobs_from_html  # noqa: E402
 from tracker.http_util import _parse_robots, _robots_allowed  # noqa: E402
 from tracker.locations import state_tokens  # noqa: E402
+from tracker.poller import poll_career_pages  # noqa: E402
+from tracker.render_static import render  # noqa: E402
 
 CFG = {
     "filters": {
@@ -210,6 +216,201 @@ class TestDb(unittest.TestCase):
         db.upsert_user(self.conn, "friend", webhook="w")
         db.set_user_watermark(self.conn, "friend", pid)
         self.assertEqual(db.active_users(self.conn)[0]["last_posting_id"], pid)
+
+
+def _job(title, url):
+    return {"title": title, "url": url, "location": "San Jose, CA",
+            "posted_at": "", "description": ""}
+
+
+class TestRemoval(unittest.TestCase):
+    """Closed postings get hidden — but never on a bad fetch, and never the
+    user's own Applied record."""
+
+    OLD = "2020-01-01T00:00:00+00:00"
+
+    def setUp(self):
+        fd, self.path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self.conn = db.connect(self.path)
+        self.cfg = dict(CFG, companies=[{"name": "Acme", "type": "greenhouse", "board": "acme"}],
+                        schedule={"inter_company_delay_seconds": 0},
+                        removal={"career_grace_days": 3, "email_max_age_days": 30})
+
+    def tearDown(self):
+        self.conn.close()
+        os.unlink(self.path)
+
+    def poll(self, jobs=None, error=None):
+        fake = mock.Mock(side_effect=error) if error else mock.Mock(return_value=jobs)
+        with mock.patch("tracker.poller.fetch_company", fake), \
+                mock.patch("sys.stdout", io.StringIO()), mock.patch("sys.stderr", io.StringIO()):
+            poll_career_pages(self.cfg, self.conn)
+
+    def age_all(self):
+        self.conn.execute("UPDATE postings SET last_seen = ?, first_seen = ?", (self.OLD, self.OLD))
+        self.conn.commit()
+
+    def visible(self):
+        return {r["title"] for r in self.conn.execute(
+            "SELECT title FROM postings WHERE removed_at = ''").fetchall()}
+
+    A = _job("Software Intern 2027", "https://acme.com/a")
+    B = _job("SWE Intern Summer 2027", "https://acme.com/b")
+
+    def test_posting_dropped_from_board_is_hidden(self):
+        self.poll([self.A, self.B])
+        self.age_all()
+        self.poll([self.A])
+        self.assertEqual(self.visible(), {self.A["title"]})
+
+    def test_still_listed_posting_is_refreshed_not_hidden(self):
+        self.poll([self.A])
+        self.age_all()
+        self.poll([self.A])
+        row = self.conn.execute("SELECT last_seen FROM postings").fetchone()
+        self.assertGreater(row["last_seen"], self.OLD)
+
+    def test_failed_fetch_hides_nothing(self):
+        self.poll([self.A, self.B])
+        self.age_all()
+        self.poll(error=RuntimeError("429 Too Many Requests"))
+        self.assertEqual(len(self.visible()), 2)
+
+    def test_empty_fetch_hides_nothing(self):
+        self.poll([self.A, self.B])
+        self.age_all()
+        self.poll([])
+        self.assertEqual(len(self.visible()), 2)
+
+    def test_within_grace_period_is_kept(self):
+        self.poll([self.A, self.B])
+        self.poll([self.A])  # B only just went missing
+        self.assertEqual(len(self.visible()), 2)
+
+    def test_applied_posting_is_never_hidden(self):
+        self.poll([self.A, self.B])
+        self.conn.execute("UPDATE postings SET status = 'Applied' WHERE title = ?",
+                          (self.B["title"],))
+        self.age_all()
+        self.poll([self.A])
+        self.assertIn(self.B["title"], self.visible())
+
+    def test_relisted_posting_comes_back_without_renotifying(self):
+        self.poll([self.A, self.B])
+        self.age_all()
+        self.poll([self.A])
+        verdict, _ = db.upsert_posting(self.conn, company="Acme", title=self.B["title"],
+                                       url=self.B["url"], source="career_page")
+        self.assertEqual(verdict, "merged")
+        self.assertIn(self.B["title"], self.visible())
+
+    def test_email_postings_age_out_but_manual_adds_stay(self):
+        for title, src in [("Email Intern", "linkedin"), ("Manual Intern", "manual")]:
+            db.upsert_posting(self.conn, company="Other", title=title, url="https://x.com/" + src,
+                              source=src)
+        # an emailed posting the career page also confirms follows the career rule
+        db.upsert_posting(self.conn, company="Acme", title=self.A["title"],
+                          url="https://li.com/1", source="linkedin")
+        self.poll([self.A])
+        self.age_all()
+        self.poll([self.A])
+        self.assertEqual(self.visible(), {"Manual Intern", self.A["title"]})
+
+    def test_hidden_postings_are_not_notified(self):
+        self.poll([self.A, self.B])
+        self.age_all()
+        self.poll([self.A])
+        titles = {r["title"] for r in db.postings_after(self.conn, 0)}
+        self.assertEqual(titles, {self.A["title"]})
+
+    def test_migration_backfills_last_seen_to_now(self):
+        old = sqlite3.connect(self.path + ".old")
+        old.execute("CREATE TABLE postings (id INTEGER PRIMARY KEY, dedupe_key TEXT UNIQUE,"
+                    " company TEXT, title TEXT, url TEXT, sources TEXT, location TEXT DEFAULT '',"
+                    " first_seen TEXT, status TEXT DEFAULT 'New', state TEXT DEFAULT 'CA',"
+                    " categories TEXT DEFAULT '[]')")
+        old.execute("INSERT INTO postings (dedupe_key, company, title, url, sources, first_seen)"
+                    " VALUES ('k', 'Acme', 'Intern', 'u', '[\"career_page\"]', ?)", (self.OLD,))
+        old.commit()
+        old.close()
+        try:
+            conn = db.connect(self.path + ".old")
+            row = conn.execute("SELECT last_seen, removed_at FROM postings").fetchone()
+            conn.close()
+        finally:
+            os.unlink(self.path + ".old")
+        # backfilling to first_seen would make the first cleanup empty the feed
+        self.assertGreater(row["last_seen"], self.OLD)
+        self.assertEqual(row["removed_at"], "")
+
+    def test_row_written_without_last_seen_is_not_treated_as_stale(self):
+        # older deployed code inserts rows without last_seen until it's updated
+        self.poll([self.A, self.B])
+        self.conn.execute("UPDATE postings SET last_seen = ''")
+        self.conn.commit()
+        self.conn.close()
+        self.conn = db.connect(self.path)  # reconnecting runs the migration
+        self.poll([self.A])
+        self.assertEqual(len(self.visible()), 2)
+
+
+class TestStaticFeed(unittest.TestCase):
+    def setUp(self):
+        fd, self.path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self.conn = db.connect(self.path)
+        self.out = self.path + ".html"
+
+    def tearDown(self):
+        self.conn.close()
+        for p in (self.path, self.out):
+            if os.path.exists(p):
+                os.unlink(p)
+
+    def render(self, cfg=None):
+        render(self.conn, self.out, cfg)
+        with open(self.out, encoding="utf-8") as f:
+            html = f.read()
+        data = re.search(r'<script type="application/json" id="feed-data">(.*?)</script>',
+                         html, re.S).group(1)
+        return html, json.loads(data)
+
+    def add(self, title, company="Acme"):
+        return db.upsert_posting(self.conn, company=company, title=title,
+                                 url="https://acme.com/j", source="career_page")[1]
+
+    def test_script_breakout_is_neutralised(self):
+        payload = "Intern</script><script>alert(1)</script><!--"
+        self.add(payload)
+        html, data = self.render()
+        self.assertEqual(html.count("</script>"), 2)  # only the template's own
+        self.assertEqual(data[0]["title"], payload)  # and the data survives intact
+
+    def test_placeholder_in_posting_is_not_substituted(self):
+        self.add("Intern __HEALTH__ __DATA__")
+        _, data = self.render()
+        self.assertEqual(data[0]["title"], "Intern __HEALTH__ __DATA__")
+
+    def test_hidden_postings_are_left_off(self):
+        pid = self.add("Closed Intern")
+        self.add("Open Intern")
+        self.conn.execute("UPDATE postings SET removed_at = 'x' WHERE id = ?", (pid,))
+        self.conn.commit()
+        _, data = self.render()
+        self.assertEqual([d["title"] for d in data], ["Open Intern"])
+
+    def test_logo_only_from_a_valid_configured_domain(self):
+        self.add("Intern A", company="Acme")
+        self.add("Intern B", company="Evil")
+        self.add("Intern C", company="Unlisted")
+        cfg = {"companies": [
+            {"name": "Acme", "website": "acme.com"},
+            {"name": "Evil", "website": 'evil.com" onerror="alert(1)'},
+        ]}
+        _, data = self.render(cfg)
+        sites = {d["company"]: d["site"] for d in data}
+        self.assertEqual(sites, {"Acme": "acme.com", "Evil": "", "Unlisted": ""})
 
 
 class TestEmailParsing(unittest.TestCase):

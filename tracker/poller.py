@@ -37,6 +37,8 @@ def _fetch_variants(company):
 def poll_career_pages(cfg, conn, only_company=None):
     pf = PostingFilter(cfg)
     delay = cfg.get("schedule", {}).get("inter_company_delay_seconds", 5)
+    removal = cfg.get("removal", {})
+    grace = removal.get("career_grace_days", 3)
     new_count = 0
     for company in cfg.get("companies", []):
         name = company["name"]
@@ -51,7 +53,7 @@ def poll_career_pages(cfg, conn, only_company=None):
                     seen_urls.add(j["url"])
                     j["category_hint"] = hint
                     raw.append(j)
-            kept = 0
+            seen_ids = []
             for j in raw:
                 cats, _reason = pf.accept(j["title"], j.get("description", ""),
                                           category_hint=j.get("category_hint"))
@@ -60,20 +62,29 @@ def poll_career_pages(cfg, conn, only_company=None):
                 if not pf.location_ok(j.get("location", ""),
                                       source_us_filtered=company.get("us_filtered", False)):
                     continue
-                kept += 1
                 verdict, _id = db.upsert_posting(
                     conn, company=name, title=j["title"], url=j["url"],
                     source="career_page", location=j.get("location", ""),
                     posted_at=j.get("posted_at", ""), categories=cats)
+                seen_ids.append(_id)
                 if verdict == "new":
                     new_count += 1
+            db.touch_postings(conn, seen_ids)
             db.record_health(conn, f"career:{name}", True)
-            print(f"[career] {name}: {len(raw)} fetched, {kept} matched filters")
+            # An empty board is more likely a broken adapter than a company
+            # closing every role at once, so it never triggers cleanup.
+            closed = db.hide_closed_career_postings(conn, name, grace) if raw else 0
+            print(f"[career] {name}: {len(raw)} fetched, {len(seen_ids)} matched filters"
+                  + (f", {closed} closed" if closed else ""))
         except Exception as e:
             db.record_health(conn, f"career:{name}", False, str(e)[:300])
             print(f"[career] {name}: ERROR {e}")
             traceback.print_exc()
         time.sleep(delay)
+    if not only_company:
+        aged = db.hide_old_email_postings(conn, removal.get("email_max_age_days", 30))
+        if aged:
+            print(f"[cleanup] {aged} LinkedIn/Indeed posting(s) aged out")
     return new_count
 
 

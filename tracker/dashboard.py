@@ -89,7 +89,7 @@ PAGE = """
       <div>{{ r['location'][:55] }}</div></td>
   <td>{% for s in r['sources_list'] %}<span class="src">{{ s }}</span>{% endfor %}
       {% for s in r['cats'] %}<span class="st">{{ s }}</span>{% endfor %}</td>
-  <td>{{ r['status'] }}</td>
+  <td>{{ r['status'] }}{% if r['removed_at'] %}<div class="muted">closed</div>{% endif %}</td>
   <td class="btns">
     {% for s in ["Viewed","Applied","Dismissed","New"] if s != r['status'] %}
     <form method="post" action="/status/{{ r['id'] }}">
@@ -132,10 +132,11 @@ def create_app(cfg):
         sel_cat = request.args.get("category", "All")
         pf = PostingFilter(cfg)
         c = conn()
-        q = "SELECT * FROM postings"
+        # Closed postings drop out, except ones you applied to.
+        q = "SELECT * FROM postings WHERE (COALESCE(removed_at, '') = '' OR status = 'Applied')"
         params = ()
         if sel_status != "All":
-            q += " WHERE status = ?"
+            q += " AND status = ?"
             params = (sel_status,)
         q += " ORDER BY first_seen DESC, id DESC LIMIT 500"
         rows = [dict(r) for r in c.execute(q, params).fetchall()]
@@ -187,6 +188,9 @@ def create_app(cfg):
     @app.route("/add", methods=["POST"])
     def add():
         url = request.form["url"].strip()
+        # Rendered as a clickable link here and on the public feed.
+        if not url.lower().startswith(("http://", "https://")):
+            abort(400)
         company = request.form.get("company", "").strip() or "(manual)"
         title = request.form.get("title", "").strip() or url[:120]
         cats, _ = PostingFilter(cfg).accept(title)

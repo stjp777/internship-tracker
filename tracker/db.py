@@ -2,7 +2,7 @@
 import json
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .locations import states_str
@@ -23,7 +23,9 @@ CREATE TABLE IF NOT EXISTS postings (
     notified    INTEGER DEFAULT 0,
     notes       TEXT DEFAULT '',
     state       TEXT DEFAULT '',        -- comma-joined codes: "CA,WA" / "REMOTE" / "UNKNOWN"
-    categories  TEXT DEFAULT '[]'       -- JSON list, e.g. ["software"]
+    categories  TEXT DEFAULT '[]',      -- JSON list, e.g. ["software"]
+    last_seen   TEXT DEFAULT '',        -- ISO timestamp a source last listed it
+    removed_at  TEXT DEFAULT ''         -- set when it closes; hidden, never deleted
 );
 CREATE INDEX IF NOT EXISTS idx_postings_first_seen ON postings(first_seen DESC);
 CREATE TABLE IF NOT EXISTS seen_emails (
@@ -87,6 +89,15 @@ def _migrate(conn):
         conn.execute("ALTER TABLE postings ADD COLUMN state TEXT DEFAULT ''")
     if "categories" not in cols:
         conn.execute("ALTER TABLE postings ADD COLUMN categories TEXT DEFAULT '[]'")
+    if "last_seen" not in cols:
+        conn.execute("ALTER TABLE postings ADD COLUMN last_seen TEXT DEFAULT ''")
+    # Backfill to now, not first_seen: every existing row would otherwise look
+    # weeks stale and the first cleanup pass would empty the feed. Runs every
+    # time, since older code that doesn't set last_seen may still be writing.
+    conn.execute("UPDATE postings SET last_seen = ? WHERE COALESCE(last_seen, '') = ''",
+                 (_now(),))
+    if "removed_at" not in cols:
+        conn.execute("ALTER TABLE postings ADD COLUMN removed_at TEXT DEFAULT ''")
     ucols = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
     if ucols and "last_posting_id" not in ucols:
         # Existing users start caught-up rather than being flooded with the
@@ -101,6 +112,14 @@ def _migrate(conn):
         conn.execute("UPDATE postings SET state = ? WHERE id = ?",
                      (states_str(r["location"]), r["id"]))
     conn.commit()
+
+
+def _now():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _ago(days):
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
 
 
 def _norm(text):
@@ -124,14 +143,15 @@ def upsert_posting(conn, *, company, title, url, source, location="", posted_at=
     matched an existing entry, and the row id.
     """
     key = dedupe_key(company, title, url)
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    now = _now()
     row = conn.execute("SELECT * FROM postings WHERE dedupe_key = ?", (key,)).fetchone()
     if row is None:
         cur = conn.execute(
             "INSERT INTO postings (dedupe_key, company, title, url, sources, location,"
-            " posted_at, first_seen, deadline, state, categories) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            " posted_at, first_seen, deadline, state, categories, last_seen)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (key, company, title, url, json.dumps([source]), location, posted_at, now,
-             deadline, states_str(location), json.dumps(sorted(categories or []))),
+             deadline, states_str(location), json.dumps(sorted(categories or [])), now),
         )
         conn.commit()
         return "new", cur.lastrowid
@@ -163,6 +183,11 @@ def upsert_posting(conn, *, company, title, url, source, location="", posted_at=
     if deadline and not row["deadline"]:
         updates.append("deadline = ?")
         params.append(deadline)
+    # Listed again after being hidden: it reopened, or a fetch gap hid it.
+    # last_seen for the ordinary re-seen case is batched in touch_postings.
+    if row["removed_at"]:
+        updates += ["removed_at = ''", "last_seen = ?"]
+        params.append(now)
     if updates:
         params.append(row["id"])
         conn.execute(f"UPDATE postings SET {', '.join(updates)} WHERE id = ?", params)
@@ -228,9 +253,54 @@ def active_users(conn):
 
 
 def postings_after(conn, posting_id):
-    """Postings newer than a user's delivery watermark."""
+    """Open postings newer than a user's delivery watermark."""
     return conn.execute(
-        "SELECT * FROM postings WHERE id > ? ORDER BY id ASC", (posting_id,)).fetchall()
+        "SELECT * FROM postings WHERE id > ? AND COALESCE(removed_at, '') = ''"
+        " ORDER BY id ASC", (posting_id,)).fetchall()
+
+
+def touch_postings(conn, ids):
+    """Record that a source still lists these postings. One batched write,
+    which over Turso is one HTTP round trip instead of one per row."""
+    now = _now()
+    conn.executemany("UPDATE postings SET last_seen = ? WHERE id = ?",
+                     [(now, i) for i in ids])
+    conn.commit()
+
+
+# An Applied posting is the user's own record, so it is never hidden.
+_KEEP = "status != 'Applied' AND COALESCE(removed_at, '') = ''"
+
+
+def _hide(conn, where, params):
+    ids = [r["id"] for r in conn.execute(
+        f"SELECT id FROM postings WHERE {_KEEP} AND {where}", params).fetchall()]
+    if ids:
+        now = _now()
+        conn.executemany("UPDATE postings SET removed_at = ? WHERE id = ?",
+                         [(now, i) for i in ids])
+        conn.commit()
+    return len(ids)
+
+
+def hide_closed_career_postings(conn, company, grace_days):
+    """Hide a company's career-page postings its board stopped listing.
+
+    Only call this right after that company's fetch succeeded with results:
+    a failing or empty fetch looks exactly like every posting closing."""
+    return _hide(conn,
+                 "LOWER(company) = LOWER(?) AND sources LIKE '%\"career_page\"%'"
+                 " AND last_seen < ?",
+                 (company, _ago(grace_days)))
+
+
+def hide_old_email_postings(conn, max_age_days):
+    """LinkedIn/Indeed postings come from a one-off email and can never be
+    re-checked, so they age out instead. Manual adds are left alone."""
+    return _hide(conn,
+                 "sources NOT LIKE '%\"career_page\"%' AND sources NOT LIKE '%\"manual\"%'"
+                 " AND first_seen < ?",
+                 (_ago(max_age_days),))
 
 
 def set_user_watermark(conn, name, posting_id):

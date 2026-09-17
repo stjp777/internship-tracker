@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Open US internship postings pulled from company career pages, refreshed every 30 minutes.">
+  <meta name="color-scheme" content="light dark">
+  <title>Internship Feed</title>
+  <style>
+    :root {
+      --bg: #fafafa;
+      --surface: #ffffff;
+      --fg: #18181b;
+      --muted: #71717a;
+      --line: #e4e4e7;
+      --accent: #2563eb;
+      --chip: #f4f4f5;
+      --new: #15803d;
+      --warn: #b45309;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0c0c0e;
+        --surface: #141417;
+        --fg: #ececef;
+        --muted: #8e8e98;
+        --line: #27272c;
+        --accent: #7ea8ff;
+        --chip: #1f1f24;
+        --new: #4ade80;
+        --warn: #fbbf24;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 860px; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
+    a { color: var(--accent); }
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; overflow: hidden;
+      clip: rect(0 0 0 0); white-space: nowrap;
+    }
+
+    /* header */
+    header h1 { margin: 0; font-size: 1.75rem; font-weight: 650; letter-spacing: -.02em; }
+    header p { margin: .35rem 0 0; color: var(--muted); }
+
+    /* controls */
+    .controls { margin: 2rem 0 1.25rem; display: grid; gap: .75rem; }
+    input[type=search], select {
+      font: inherit; color: var(--fg); background: var(--surface);
+      border: 1px solid var(--line); border-radius: 10px;
+    }
+    input[type=search] { width: 100%; padding: .7rem .9rem; }
+    input[type=search]:focus, select:focus, .chip:focus-visible, .job a:focus-visible {
+      outline: 2px solid var(--accent); outline-offset: 1px;
+    }
+    .selects { display: flex; flex-wrap: wrap; gap: .5rem; }
+    select { padding: .45rem .6rem; min-width: 11rem; flex: 1 1 11rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .chip {
+      font: inherit; font-size: .83rem; cursor: pointer;
+      color: var(--fg); background: var(--surface);
+      border: 1px solid var(--line); border-radius: 999px; padding: .25rem .8rem;
+    }
+    .chip .n { color: var(--muted); margin-left: .3rem; }
+    .chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+    .chip[aria-pressed="true"] .n { color: inherit; opacity: .7; }
+
+    /* list */
+    .count { margin: 0 0 .5rem; color: var(--muted); font-size: .85rem; }
+    .jobs {
+      list-style: none; margin: 0; padding: 0;
+      background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    }
+    .job {
+      display: grid; grid-template-columns: 40px 1fr auto; gap: .9rem;
+      align-items: center; padding: .9rem 1rem;
+    }
+    .job + .job { border-top: 1px solid var(--line); }
+    .logo {
+      position: relative; width: 40px; height: 40px; border-radius: 10px;
+      display: grid; place-items: center; overflow: hidden;
+      font-weight: 650; color: #fff; background: hsl(var(--h) 45% 48%);
+    }
+    .logo img {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      padding: 6px; object-fit: contain; background: #fff;
+      border: 1px solid var(--line); border-radius: inherit;
+    }
+    .role { min-width: 0; }
+    .title {
+      display: block; font-weight: 550; color: var(--fg); text-decoration: none;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .title:hover { color: var(--accent); }
+    .meta { color: var(--muted); font-size: .85rem; overflow-wrap: anywhere; }
+    .tags { margin-top: .3rem; display: flex; flex-wrap: wrap; gap: .3rem; }
+    .tag { font-size: .72rem; background: var(--chip); border-radius: 6px; padding: .05rem .45rem; }
+    .when { color: var(--muted); font-size: .8rem; white-space: nowrap; text-align: right; }
+    .when.new { color: var(--new); font-weight: 600; }
+    .empty { text-align: center; color: var(--muted); padding: 3rem 1rem; }
+
+    /* footer */
+    footer { margin-top: 2.5rem; color: var(--muted); font-size: .8rem; }
+    footer p { margin: .3rem 0; }
+    .warn { color: var(--warn); }
+
+    @media (max-width: 560px) {
+      .wrap { padding-top: 2rem; }
+      .job { grid-template-columns: 36px 1fr; }
+      .logo { width: 36px; height: 36px; }
+      .when { grid-column: 2; text-align: left; margin-top: -.5rem; }
+      .title { white-space: normal; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Internship Feed</h1>
+      <p>Open US internships from company career pages, updated <time id="updated" datetime="__UPDATED_ISO__">__UPDATED__</time>.</p>
+    </header>
+
+    <main>
+      <div class="controls" role="search">
+        <label class="sr-only" for="q">Search roles or companies</label>
+        <input id="q" type="search" placeholder="Search roles or companies" autocomplete="off">
+        <div class="selects">
+          <label class="sr-only" for="f-state">Location</label>
+          <select id="f-state"></select>
+          <label class="sr-only" for="f-co">Company</label>
+          <select id="f-co"></select>
+        </div>
+        <div class="chips" id="f-cat" role="group" aria-label="Category"></div>
+      </div>
+
+      <p class="count" id="count" aria-live="polite"></p>
+      <ul class="jobs" id="jobs"></ul>
+      <p class="empty" id="empty" hidden>No postings match these filters.</p>
+    </main>
+
+    <footer>
+      <p>Apply links go to each company's own careers site. Postings disappear once the company closes them.</p>
+      __HEALTH__
+    </footer>
+  </div>
+
+  <script type="application/json" id="feed-data">__DATA__</script>
+  <script>
+    "use strict";
+    const DATA = JSON.parse(document.getElementById("feed-data").textContent);
+    const sel = { q: "", state: "", co: "", cat: "" };
+    const $ = id => document.getElementById(id);
+
+    // Every posting field is untrusted, so anything going into innerHTML
+    // passes through esc(), and links through safeUrl() first.
+    const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    const safeUrl = u => {
+      const s = String(u).trim().toLowerCase();
+      return s.startsWith("http://") || s.startsWith("https://") ? u : "#";
+    };
+
+    const STATE_LABEL = { REMOTE: "Remote", UNKNOWN: "Location not listed" };
+    const stateLabel = s => STATE_LABEL[s] || s;
+    const initial = s => (String(s).match(/[a-z0-9]/i) || ["?"])[0].toUpperCase();
+    const hue = s => [...String(s)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+    // `site` is a validated domain from config.yaml, never posting data.
+    const logoUrl = site =>
+      "https://www.google.com/s2/favicons?sz=64&domain=" + encodeURIComponent(site);
+
+    function ago(iso) {
+      const days = (Date.now() - Date.parse(iso)) / 864e5;
+      if (!(days >= 0)) return "";
+      if (days < 1) return "Today";
+      if (days < 2) return "Yesterday";
+      if (days < 30) return Math.floor(days) + "d ago";
+      return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    }
+
+    // A row counts toward a facet if it passes every *other* active filter.
+    function matches(r, skip) {
+      if (sel.q && !(r.title + " " + r.company).toLowerCase().includes(sel.q)) return false;
+      if (skip !== "state" && sel.state && !r.states.includes(sel.state)) return false;
+      if (skip !== "co" && sel.co && r.company !== sel.co) return false;
+      if (skip !== "cat" && sel.cat && !r.cats.includes(sel.cat)) return false;
+      return true;
+    }
+
+    function tally(key, valuesOf) {
+      const counts = new Map();
+      if (sel[key]) counts.set(sel[key], 0);
+      DATA.filter(r => matches(r, key)).forEach(r =>
+        valuesOf(r).forEach(v => counts.set(v, (counts.get(v) || 0) + 1)));
+      return counts;
+    }
+
+    function fillSelect(el, key, allLabel, counts, order) {
+      el.replaceChildren(new Option(allLabel, ""));
+      [...counts].sort(order).forEach(([v, n]) =>
+        el.add(new Option(`${key === "state" ? stateLabel(v) : v} (${n})`, v)));
+      el.value = sel[key];
+    }
+
+    function renderChips(counts) {
+      const box = $("f-cat");
+      box.replaceChildren();
+      const chip = (label, value, n) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "chip";
+        b.textContent = label;
+        if (n !== undefined) {
+          const c = document.createElement("span");
+          c.className = "n";
+          c.textContent = n;
+          b.append(c);
+        }
+        b.setAttribute("aria-pressed", String(sel.cat === value));
+        b.addEventListener("click", () => {
+          sel.cat = sel.cat === value ? "" : value;
+          render();
+        });
+        box.append(b);
+      };
+      chip("All", "");
+      [...counts]
+        .sort((a, b) => (a[0] === "general") - (b[0] === "general") || a[0].localeCompare(b[0]))
+        .forEach(([v, n]) => chip(v, v, n));
+    }
+
+    function jobHtml(r) {
+      const where = r.location
+        || r.states.filter(s => s !== "UNKNOWN").map(stateLabel).join(", ");
+      const fresh = Date.now() - Date.parse(r.seen) < 2 * 864e5;
+      const tags = r.cats.filter(c => c !== "general");
+      const logo = r.site
+        ? `<img src="${esc(logoUrl(r.site))}" alt="" loading="lazy" referrerpolicy="no-referrer">`
+        : "";
+      return `<li class="job">
+        <span class="logo" style="--h:${hue(r.company)}" aria-hidden="true">${esc(initial(r.company))}${logo}</span>
+        <div class="role">
+          <a class="title" href="${esc(safeUrl(r.url))}" target="_blank" rel="noopener noreferrer">${esc(r.title)}</a>
+          <div class="meta">${esc(r.company)}${where ? " · " + esc(where) : ""}</div>
+          ${tags.length ? `<div class="tags">${tags.map(c => `<span class="tag">${esc(c)}</span>`).join("")}</div>` : ""}
+        </div>
+        <time class="when${fresh ? " new" : ""}" datetime="${esc(r.seen)}">${esc(ago(r.seen))}</time>
+      </li>`;
+    }
+
+    function render() {
+      fillSelect($("f-state"), "state", "All locations", tally("state", r => r.states),
+        (a, b) => ["REMOTE", "UNKNOWN"].indexOf(a[0]) - ["REMOTE", "UNKNOWN"].indexOf(b[0])
+          || a[0].localeCompare(b[0]));
+      fillSelect($("f-co"), "co", "All companies", tally("co", r => [r.company]),
+        (a, b) => a[0].localeCompare(b[0]));
+      renderChips(tally("cat", r => r.cats));
+
+      const rows = DATA.filter(r => matches(r));
+      $("jobs").innerHTML = rows.map(jobHtml).join("");
+      $("jobs").hidden = rows.length === 0;
+      $("empty").hidden = rows.length > 0;
+      $("count").textContent = rows.length === DATA.length
+        ? `${DATA.length} open roles`
+        : `${rows.length} of ${DATA.length} open roles`;
+    }
+
+    // A logo that fails to load is removed, uncovering the letter badge.
+    $("jobs").addEventListener("error", e => {
+      if (e.target.tagName === "IMG") e.target.remove();
+    }, true);
+    $("q").addEventListener("input", e => { sel.q = e.target.value.trim().toLowerCase(); render(); });
+    $("f-state").addEventListener("change", e => { sel.state = e.target.value; render(); });
+    $("f-co").addEventListener("change", e => { sel.co = e.target.value; render(); });
+
+    // Relative while recent; otherwise keep the absolute time rendered server-side.
+    function since(iso) {
+      const min = Math.round((Date.now() - Date.parse(iso)) / 6e4);
+      if (!(min >= 0) || min >= 48 * 60) return "";
+      if (min < 1) return "just now";
+      return min < 60 ? `${min} min ago` : `${Math.round(min / 60)} h ago`;
+    }
+    const updated = $("updated");
+    updated.textContent = since(updated.dateTime) || updated.textContent;
+    render();
+  </script>
+</body>
+</html>

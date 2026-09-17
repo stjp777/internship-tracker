@@ -38,7 +38,7 @@ def main():
             fan_out(cfg, conn)
         site = BASE / "site"
         site.mkdir(exist_ok=True)
-        n = render(conn, site / "index.html")
+        n = render(conn, site / "index.html", cfg)
         print(f"[cloud] rendered static dashboard with {n} posting(s)")
     finally:
         conn.close()

@@ -3,6 +3,8 @@ import json
 
 import requests
 
+from .fanout import discord_payload
+
 
 def _toast(title, body, url=None):
     try:
@@ -23,7 +25,7 @@ def _discord(webhook_url, content):
     # Never print the exception itself: it embeds the webhook url, which is a
     # bearer credential anyone could reuse to post into the channel.
     try:
-        r = requests.post(webhook_url, json={"content": content}, timeout=15)
+        r = requests.post(webhook_url, json=discord_payload(content), timeout=15)
     except requests.RequestException as e:
         print(f"  [notify] discord webhook failed ({type(e).__name__})")
         return False

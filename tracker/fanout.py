@@ -33,6 +33,12 @@ def _cats_match(user_cats, posting_cats):
     return bool(set(user_cats) & set(posting_cats))
 
 
+def discord_payload(content):
+    # Posting text is untrusted; without this, a job title containing
+    # "@everyone" would ping the whole server.
+    return {"content": content, "allowed_mentions": {"parse": []}}
+
+
 def _post(webhook, content):
     """POST to Discord, honouring 429 rate-limit backoff.
 
@@ -42,7 +48,7 @@ def _post(webhook, content):
     """
     for attempt in range(3):
         try:
-            r = requests.post(webhook, json={"content": content}, timeout=15)
+            r = requests.post(webhook, json=discord_payload(content), timeout=15)
         except requests.RequestException as e:
             raise RuntimeError(f"discord request failed ({type(e).__name__})") from None
         if r.status_code == 429:

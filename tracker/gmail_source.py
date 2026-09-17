@@ -6,6 +6,7 @@ file exists this module is silently skipped. Scope is read-only.
 import base64
 import html as htmllib
 import re
+from email.utils import parseaddr
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -96,11 +97,12 @@ def _is_job_link(href, provider):
 
 
 def _provider_for(sender):
-    s = (sender or "").lower()
-    if "linkedin" in s:
-        return "linkedin"
-    if "indeed" in s:
-        return "indeed"
+    # Judge by the address's domain, not the whole header: a display name
+    # like "LinkedIn Jobs" <x@evil.example> must not count as LinkedIn.
+    domain = parseaddr(sender or "")[1].lower().rpartition("@")[2]
+    for provider, host in JOB_LINK_HOSTS.items():
+        if domain == host or domain.endswith("." + host):
+            return provider
     return None
 
 

@@ -355,6 +355,138 @@ class TestRemoval(unittest.TestCase):
         self.assertEqual(len(self.visible()), 2)
 
 
+class TestReviewFixes(unittest.TestCase):
+    """Findings from the second external security review (SEC-01..07)."""
+
+    def setUp(self):
+        fd, self.path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self.conn = db.connect(self.path)
+
+    def tearDown(self):
+        self.conn.close()
+        os.unlink(self.path)
+
+    # SEC-04
+    def test_discord_messages_cannot_ping_everyone(self):
+        from tracker import fanout, notify
+        ok = mock.Mock(status_code=204)
+        with mock.patch("requests.post", return_value=ok) as post:
+            fanout._post("https://discord.invalid/w", "Intern @everyone")
+            notify._discord("https://discord.invalid/w", "Intern @here")
+        for call in post.call_args_list:
+            self.assertEqual(call.kwargs["json"]["allowed_mentions"], {"parse": []})
+        self.assertEqual(post.call_args_list[0].kwargs["json"]["content"], "Intern @everyone")
+
+    # SEC-03
+    def hidden_career_posting(self):
+        _, pid = db.upsert_posting(self.conn, company="Stripe", title="SWE Intern 2027",
+                                   url="https://stripe.com/j/1", source="career_page")
+        self.conn.execute("UPDATE postings SET removed_at = 'x' WHERE id = ?", (pid,))
+        self.conn.commit()
+        return pid
+
+    def removed_at(self, pid):
+        return self.conn.execute("SELECT removed_at FROM postings WHERE id = ?",
+                                 (pid,)).fetchone()["removed_at"]
+
+    def test_old_alert_email_does_not_revive_a_closed_career_posting(self):
+        pid = self.hidden_career_posting()
+        db.upsert_posting(self.conn, company="Stripe", title="SWE Intern 2027",
+                          url="https://www.linkedin.com/jobs/view/1", source="linkedin")
+        self.assertEqual(self.removed_at(pid), "x")
+
+    def test_career_page_still_revives_its_own_posting(self):
+        pid = self.hidden_career_posting()
+        db.upsert_posting(self.conn, company="Stripe", title="SWE Intern 2027",
+                          url="https://stripe.com/j/1", source="career_page")
+        self.assertEqual(self.removed_at(pid), "")
+
+    def test_email_only_posting_can_still_be_revived_by_email(self):
+        _, pid = db.upsert_posting(self.conn, company="Acme", title="Intern",
+                                   url="https://www.linkedin.com/jobs/view/5", source="linkedin")
+        self.conn.execute("UPDATE postings SET removed_at = 'x' WHERE id = ?", (pid,))
+        db.upsert_posting(self.conn, company="Acme", title="Intern",
+                          url="https://www.linkedin.com/jobs/view/5", source="linkedin")
+        self.assertEqual(self.removed_at(pid), "")
+
+    # SEC-06
+    def test_companyless_postings_are_keyed_by_job_not_title(self):
+        k = lambda url: db.dedupe_key(db.UNKNOWN_COMPANY, "Software Intern 2027", url)
+        indeed = "https://www.indeed.com/rc/clk?jk={}&from=ja"
+        self.assertNotEqual(k(indeed.format("aaa111")), k(indeed.format("bbb222")))
+        self.assertEqual(k(indeed.format("aaa111")), k(indeed.format("AAA111") + "&x=1"))
+        self.assertNotEqual(k("https://www.linkedin.com/comm/jobs/view/1?trk=a"),
+                            k("https://www.linkedin.com/comm/jobs/view/2?trk=a"))
+        self.assertEqual(k("https://www.linkedin.com/comm/jobs/view/1?trk=a"),
+                         k("https://www.linkedin.com/jobs/view/1?trk=b"))
+        # a job id only counts in its own site's host/path, not buried in a query
+        self.assertEqual(k(indeed.format("aaa111") + "&x=linkedin.com/jobs/view/7"),
+                         k(indeed.format("aaa111")))
+        self.assertNotEqual(k("https://evil.example/?u=linkedin.com/jobs/view/7"),
+                            k("https://www.linkedin.com/jobs/view/7"))
+
+    def test_named_company_keys_are_unchanged(self):
+        self.assertEqual(db.dedupe_key("Acme", "SWE Intern!", "https://x.com/1"), "acme|swe intern")
+        self.assertEqual(db.dedupe_key("(manual)", "SWE Intern", "u"), "manual|swe intern")
+
+    # SEC-07
+    def test_sender_is_judged_by_address_domain(self):
+        from tracker.gmail_source import _provider_for
+        self.assertEqual(_provider_for("LinkedIn <jobalerts-noreply@linkedin.com>"), "linkedin")
+        self.assertEqual(_provider_for("alert@indeed.com"), "indeed")
+        self.assertEqual(_provider_for("x@e.linkedin.com"), "linkedin")
+        self.assertIsNone(_provider_for('"LinkedIn Job Alerts" <alerts@evil.example>'))
+        self.assertIsNone(_provider_for("jobs@linkedin.com.evil.example"))
+        self.assertIsNone(_provider_for("indeed@evil.example"))
+
+
+class TestDashboard(unittest.TestCase):
+    # SEC-01 and SEC-05
+    def setUp(self):
+        from tracker.dashboard import create_app
+        fd, self.path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        conn = db.connect(self.path)
+        db.upsert_posting(conn, company="Acme", title="Intern", url="javascript:alert(1)",
+                          source="manual")
+        conn.close()
+        cfg = dict(CFG, database=self.path, dashboard={"host": "127.0.0.1", "port": 5717})
+        self.client = create_app(cfg).test_client()
+
+    def tearDown(self):
+        os.unlink(self.path)
+
+    def post(self, path, data, **headers):
+        return self.client.post(path, data=data, headers=headers)
+
+    def test_own_forms_still_work(self):
+        r = self.post("/status/1", {"status": "Applied"}, Origin="http://localhost")
+        self.assertEqual(r.status_code, 302)
+        r = self.post("/add", {"url": "https://acme.com/j"}, Referer="http://localhost/?status=All")
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(self.client.get("/").status_code, 200)
+
+    def test_cross_site_post_is_refused(self):
+        for headers in ({"Origin": "https://evil.example"}, {"Origin": "null"},
+                        {"Referer": "https://evil.example/page"}, {},
+                        {"Origin": "http://localhost:9999"}):
+            r = self.post("/add", {"url": "https://phish.example"}, **headers)
+            self.assertEqual(r.status_code, 403, headers)
+
+    def test_dns_rebinding_is_refused(self):
+        r = self.client.get("/", headers={"Host": "evil.example:5717"})
+        self.assertEqual(r.status_code, 403)
+        r = self.post("/add", {"url": "https://phish.example"},
+                      Host="evil.example:5717", Origin="http://evil.example:5717")
+        self.assertEqual(r.status_code, 403)
+
+    def test_dangerous_links_are_not_clickable(self):
+        page = self.client.get("/").get_data(as_text=True)
+        self.assertNotIn("javascript:", page)
+        self.assertIn('href="#"', page)
+
+
 class TestStaticFeed(unittest.TestCase):
     def setUp(self):
         fd, self.path = tempfile.mkstemp(suffix=".db")

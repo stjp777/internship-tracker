@@ -1,5 +1,6 @@
 """Local web dashboard: browse postings, set status, quick-add a URL."""
 import json
+from urllib.parse import urlsplit
 
 from flask import Flask, abort, redirect, render_template_string, request
 
@@ -83,7 +84,7 @@ PAGE = """
 <tr class="status-{{ r['status'] }}">
   <td class="muted" title="{{ r['first_seen'] }}">{{ r['first_seen'][:16].replace('T',' ') }}</td>
   <td>{{ r['company'] }}</td>
-  <td>{% if r['is_pref'] %}<span title="preferred state">⭐</span> {% endif %}<a href="{{ r['url'] }}" target="_blank" rel="noopener">{{ r['title'] }}</a>
+  <td>{% if r['is_pref'] %}<span title="preferred state">⭐</span> {% endif %}<a href="{{ r['url']|safe_url }}" target="_blank" rel="noopener">{{ r['title'] }}</a>
       {% if r['deadline'] %}<div class="muted">deadline: {{ r['deadline'] }}</div>{% endif %}</td>
   <td class="muted">{% for s in r['states'] %}<span class="st">{{ s }}</span>{% endfor %}
       <div>{{ r['location'][:55] }}</div></td>
@@ -115,10 +116,44 @@ PAGE = """
 """
 
 
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def safe_url(u):
+    """Only http(s) links are clickable; anything else becomes a dead link."""
+    s = str(u or "").strip().lower()
+    return u if s.startswith(("http://", "https://")) else "#"
+
+
+def _origin(url):
+    parts = urlsplit(url or "")
+    return f"{parts.scheme}://{parts.netloc}".lower() if parts.netloc else ""
+
+
 def create_app(cfg):
     app = Flask(__name__)
+    app.jinja_env.filters["safe_url"] = safe_url
     db_path = cfg.get("database", "internships.db")
     use_shared = cfg.get("use_shared_db", False)
+    dash = cfg.get("dashboard", {})
+    allowed_hosts = LOCAL_HOSTS | {str(h).lower() for h in dash.get("allowed_hosts") or []}
+    bind = str(dash.get("host", "")).lower()
+    if bind not in ("", "0.0.0.0", "::"):
+        allowed_hosts.add(bind)
+
+    @app.before_request
+    def reject_foreign_requests():
+        # The Host check stops DNS rebinding (evil.example pointed at
+        # 127.0.0.1); the Origin check stops any other site's page from
+        # submitting a form here, which in --shared mode would write to the
+        # database everyone's feed and Discord pings come from.
+        if urlsplit("//" + request.host).hostname not in allowed_hosts:
+            abort(403)
+        if request.method == "POST":
+            origin = (request.headers.get("Origin", "").lower()
+                      or _origin(request.headers.get("Referer")))
+            if origin != f"{request.scheme}://{request.host}".lower():
+                abort(403)
 
     def conn():
         if use_shared:

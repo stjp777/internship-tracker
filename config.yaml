@@ -218,3 +218,7 @@ notifications:
 dashboard:
   host: 127.0.0.1
   port: 5717
+  # Requests are refused unless addressed to localhost or `host` above. If you
+  # bind to 0.0.0.0 to reach it from your phone, list that machine's LAN
+  # address or name here, e.g. [192.168.1.20]. There is no login.
+  allowed_hosts: []

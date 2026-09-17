@@ -42,7 +42,7 @@ def main():
             if not cats:
                 continue
             verdict, _id = db.upsert_posting(
-                shared, company=j["company"] or "(see posting)", title=j["title"],
+                shared, company=j["company"] or db.UNKNOWN_COMPANY, title=j["title"],
                 url=j["url"], source=j["provider"], categories=cats)
             if verdict == "new":
                 pushed += 1

@@ -4,6 +4,7 @@ import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from .locations import states_str
 
@@ -126,13 +127,40 @@ def _norm(text):
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", (text or "").lower())).strip()
 
 
+# What an alert email falls back to when it can't find the company name.
+UNKNOWN_COMPANY = "(see posting)"
+
+
 def dedupe_key(company, title, url=""):
     """Same company + same normalized title collapses to one entry,
-    regardless of which source reported it."""
-    key = f"{_norm(company)}|{_norm(title)}"
-    if key != "|":
-        return key
-    return f"url|{(url or '').split('?')[0].rstrip('/').lower()}"
+    regardless of which source reported it.
+
+    Without a real company name, "Software Intern" from two different
+    employers would collapse into one, so those are keyed by the job itself.
+    """
+    co = _norm(company)
+    if co and co != _norm(UNKNOWN_COMPANY):
+        return f"{co}|{_norm(title)}"
+    return _url_key(url)
+
+
+def _url_key(url):
+    url = url or ""
+    # The job id lives in the path for LinkedIn but in the query for Indeed
+    # (every Indeed link is /rc/clk?jk=...), so stripping the query alone
+    # would make all Indeed postings collide. Read both from the parsed url,
+    # not a raw substring, so one link can't pose as another site's job.
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    if host == "linkedin.com" or host.endswith(".linkedin.com"):
+        m = re.match(r"/(?:comm/)?jobs/view/(\d+)", parts.path)
+        if m:
+            return f"linkedin|{m.group(1)}"
+    if host == "indeed.com" or host.endswith(".indeed.com"):
+        jk = parse_qs(parts.query).get("jk")
+        if jk:
+            return f"indeed|{jk[0].lower()}"
+    return f"url|{url.split('?')[0].rstrip('/').lower()}"
 
 
 def upsert_posting(conn, *, company, title, url, source, location="", posted_at="",
@@ -184,8 +212,11 @@ def upsert_posting(conn, *, company, title, url, source, location="", posted_at=
         updates.append("deadline = ?")
         params.append(deadline)
     # Listed again after being hidden: it reopened, or a fetch gap hid it.
+    # Only the career page can vouch for its own postings; a days-old alert
+    # email mentioning a role the company already closed must not revive it.
     # last_seen for the ordinary re-seen case is batched in touch_postings.
-    if row["removed_at"]:
+    confirmed_by_board = "career_page" in json.loads(row["sources"])
+    if row["removed_at"] and (source == "career_page" or not confirmed_by_board):
         updates += ["removed_at = ''", "last_seen = ?"]
         params.append(now)
     if updates:

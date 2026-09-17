@@ -106,7 +106,7 @@ def poll_gmail(cfg, conn):
         if not cats:
             continue
         verdict, _id = db.upsert_posting(
-            conn, company=j["company"] or "(see posting)", title=j["title"],
+            conn, company=j["company"] or db.UNKNOWN_COMPANY, title=j["title"],
             url=j["url"], source=j["provider"], categories=cats)
         if verdict == "new":
             new_count += 1

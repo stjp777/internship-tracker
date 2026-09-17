@@ -8,8 +8,9 @@ for a genuinely new ATS.
 import html as htmllib
 import json
 import re
+import time
 
-from .http_util import BROWSER_HEADERS, make_session, robots_allows
+from .http_util import BROWSER_HEADERS, get_with_backoff, make_session, robots_allows
 
 TIMEOUT = 30
 
@@ -107,9 +108,12 @@ def fetch_eightfold(company, session):
                   "start": start, "num": 10, "sort_by": "timestamp"}
         if company.get("location"):
             params["location"] = company["location"]
-        r = session.get(
-            f"https://{host}/api/pcsx/search", params=params,
-            timeout=TIMEOUT)
+        if start:
+            time.sleep(1)  # pages come 10 at a time; don't fire them back to back
+        # This host intermittently 429s GitHub's shared runner IPs, usually on
+        # the very first request, so give it a couple of spaced retries.
+        r = get_with_backoff(session, f"https://{host}/api/pcsx/search",
+                             company["name"], params=params, timeout=TIMEOUT)
         r.raise_for_status()
         positions = r.json().get("data", {}).get("positions", [])
         if not positions:

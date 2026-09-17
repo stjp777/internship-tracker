@@ -18,7 +18,9 @@ from tracker import db  # noqa: E402
 from tracker.fanout import _cats_match, _states_match  # noqa: E402
 from tracker.filters import PostingFilter  # noqa: E402
 from tracker.gmail_source import extract_jobs_from_html  # noqa: E402
-from tracker.http_util import _parse_robots, _robots_allowed  # noqa: E402
+import requests  # noqa: E402
+
+from tracker.http_util import _parse_robots, _robots_allowed, get_with_backoff  # noqa: E402
 from tracker.locations import state_tokens  # noqa: E402
 from tracker.poller import poll_career_pages  # noqa: E402
 from tracker.render_static import render  # noqa: E402
@@ -439,6 +441,67 @@ class TestReviewFixes(unittest.TestCase):
         self.assertIsNone(_provider_for('"LinkedIn Job Alerts" <alerts@evil.example>'))
         self.assertIsNone(_provider_for("jobs@linkedin.com.evil.example"))
         self.assertIsNone(_provider_for("indeed@evil.example"))
+
+
+class TestRateLimitRetry(unittest.TestCase):
+    def resp(self, status, retry_after=None, positions=None):
+        r = mock.Mock(status_code=status, headers={})
+        if retry_after is not None:
+            r.headers["Retry-After"] = retry_after
+        r.json.return_value = {"data": {"positions": positions or []}}
+        r.raise_for_status.side_effect = (
+            requests.HTTPError(f"{status}") if status >= 400 else None)
+        return r
+
+    def run_get(self, *responses):
+        session = mock.Mock()
+        session.get.side_effect = list(responses)
+        with mock.patch("tracker.http_util.time.sleep") as sleep, \
+                mock.patch("sys.stdout", io.StringIO()):
+            r = get_with_backoff(session, "https://x.invalid", "X")
+        return r, [c.args[0] for c in sleep.call_args_list], session.get.call_count
+
+    def test_recovers_after_a_429(self):
+        r, slept, calls = self.run_get(self.resp(429), self.resp(200))
+        self.assertEqual((r.status_code, slept, calls), (200, [20], 2))
+
+    def test_honors_retry_after_but_caps_it(self):
+        _, slept, _ = self.run_get(self.resp(429, "5"), self.resp(200))
+        self.assertEqual(slept, [5])
+        _, slept, _ = self.run_get(self.resp(429, "3600"), self.resp(200))
+        self.assertEqual(slept, [90])
+        _, slept, _ = self.run_get(self.resp(429, "Wed, 21 Oct 2026 07:28:00 GMT"),
+                                   self.resp(200))
+        self.assertEqual(slept, [20])
+
+    def test_gives_up_after_two_retries(self):
+        r, slept, calls = self.run_get(self.resp(429), self.resp(429), self.resp(429))
+        self.assertEqual((r.status_code, slept, calls), (429, [20, 60], 3))
+
+    def test_other_errors_are_not_retried(self):
+        r, slept, calls = self.run_get(self.resp(500))
+        self.assertEqual((r.status_code, slept, calls), (500, [], 1))
+
+    def test_eightfold_retries_then_pages_through(self):
+        from tracker.adapters import fetch_eightfold
+        page = [{"name": "SWE Intern", "id": i, "locations": ["Redmond, WA"]} for i in range(10)]
+        session = mock.Mock()
+        session.get.side_effect = [self.resp(429), self.resp(200, positions=page),
+                                   self.resp(200, positions=page[:3]), self.resp(200)]
+        company = {"name": "Microsoft", "host": "careers.example", "domain": "example.com"}
+        with mock.patch("tracker.http_util.time.sleep"), mock.patch("tracker.adapters.time.sleep"), \
+                mock.patch("sys.stdout", io.StringIO()):
+            jobs = fetch_eightfold(company, session)
+        self.assertEqual(len(jobs), 13)
+
+    def test_eightfold_still_fails_when_throttled_throughout(self):
+        from tracker.adapters import fetch_eightfold
+        session = mock.Mock()
+        session.get.side_effect = [self.resp(429)] * 3
+        company = {"name": "Microsoft", "host": "careers.example", "domain": "example.com"}
+        with mock.patch("tracker.http_util.time.sleep"), mock.patch("sys.stdout", io.StringIO()):
+            with self.assertRaises(requests.HTTPError):
+                fetch_eightfold(company, session)
 
 
 class TestDashboard(unittest.TestCase):

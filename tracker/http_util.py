@@ -1,5 +1,6 @@
 """Shared HTTP session with polite defaults and a robots.txt check."""
 import re
+import time
 from urllib.parse import urlsplit
 
 import requests
@@ -105,3 +106,21 @@ def make_session():
     s = requests.Session()
     s.headers.update(BROWSER_HEADERS)
     return s
+
+
+def get_with_backoff(session, url, label, waits=(20, 60), max_wait=90, **kwargs):
+    """GET that rides out a 429 a couple of times before giving up.
+
+    Uses the server's Retry-After when it's a sane number of seconds, else
+    the next entry in `waits`. Each retry is logged so the Actions log shows
+    whether waiting actually helps against that host's throttling.
+    """
+    for attempt, fallback in enumerate((*waits, None)):
+        r = session.get(url, **kwargs)
+        if r.status_code != 429 or fallback is None:
+            return r
+        header = r.headers.get("Retry-After", "")
+        wait = min(int(header), max_wait) if header.isdigit() else fallback
+        print(f"[retry] {label}: HTTP 429 (Retry-After: {header or 'none'}),"
+              f" waiting {wait}s, attempt {attempt + 2}")
+        time.sleep(wait)

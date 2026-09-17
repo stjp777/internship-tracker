@@ -470,9 +470,9 @@ class TestRateLimitRetry(unittest.TestCase):
         self.assertEqual(slept, [5])
         _, slept, _ = self.run_get(self.resp(429, "3600"), self.resp(200))
         self.assertEqual(slept, [90])
-        _, slept, _ = self.run_get(self.resp(429, "Wed, 21 Oct 2026 07:28:00 GMT"),
-                                   self.resp(200))
-        self.assertEqual(slept, [20])
+        for junk in ("Wed, 21 Oct 2026 07:28:00 GMT", "²", "9" * 5000, "-5", "1.5"):
+            _, slept, _ = self.run_get(self.resp(429, junk), self.resp(200))
+            self.assertEqual(slept, [20], junk[:20])
 
     def test_gives_up_after_two_retries(self):
         r, slept, calls = self.run_get(self.resp(429), self.resp(429), self.resp(429))

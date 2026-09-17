@@ -120,7 +120,10 @@ def get_with_backoff(session, url, label, waits=(20, 60), max_wait=90, **kwargs)
         if r.status_code != 429 or fallback is None:
             return r
         header = r.headers.get("Retry-After", "")
-        wait = min(int(header), max_wait) if header.isdigit() else fallback
+        # isdigit() alone accepts "²" and absurdly long values, which int()
+        # then rejects; a bad header should fall back, not abort the fetch.
+        sane = header.isascii() and header.isdigit() and len(header) <= 6
+        wait = min(int(header), max_wait) if sane else fallback
         print(f"[retry] {label}: HTTP 429 (Retry-After: {header or 'none'}),"
               f" waiting {wait}s, attempt {attempt + 2}")
         time.sleep(wait)

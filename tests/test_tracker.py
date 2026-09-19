@@ -105,6 +105,29 @@ class TestFilters(unittest.TestCase):
         self.assertFalse(self.pf.location_ok("Bengaluru"))
         self.assertFalse(self.pf.location_ok("London, UK"))
 
+    def test_us_only_location_full_state_names_and_bare_cities(self):
+        self.assertTrue(self.pf.location_ok("Mountain View, California (HQ)"))
+        self.assertTrue(self.pf.location_ok("Dallas, Texas"))
+        self.assertTrue(self.pf.location_ok("San Francisco"))
+        self.assertTrue(self.pf.location_ok("New York City"))
+        self.assertFalse(self.pf.location_ok("Vienna, Austria"))
+        self.assertFalse(self.pf.location_ok("Zurich, Switzerland"))
+
+    def test_us_only_location_word_boundaries(self):
+        # "India" must not match inside "Indiana"; "Mexico" not inside "New Mexico"
+        self.assertTrue(self.pf.location_ok("Indianapolis"))
+        self.assertTrue(self.pf.location_ok("Bloomington, Indiana"))
+        self.assertTrue(self.pf.location_ok("Santa Fe, New Mexico"))
+        self.assertFalse(self.pf.location_ok("Remote - India"))
+        self.assertFalse(self.pf.location_ok("Mexico City, Mexico"))
+        # the country Georgia is not the state
+        self.assertFalse(self.pf.location_ok("Tbilisi, Georgia"))
+        self.assertFalse(self.pf.location_ok("Kutaisi, Georgia"))
+        self.assertTrue(self.pf.location_ok("Atlanta, Georgia"))
+        # Canada's country code is also "CA"
+        self.assertFalse(self.pf.location_ok("Toronto, ON, CA"))
+        self.assertTrue(self.pf.location_ok("San Jose, CA"))
+
     def test_preferred_state(self):
         self.assertTrue(self.pf.is_preferred_state("CA,WA"))
         self.assertFalse(self.pf.is_preferred_state("WA"))
@@ -143,6 +166,16 @@ class TestFanoutMatching(unittest.TestCase):
         self.assertFalse(_states_match(["NY"], ["CA", "WA"]))
         self.assertTrue(_states_match(["NY"], ["REMOTE"]))    # remote goes to everyone
         self.assertTrue(_states_match(["NY"], ["UNKNOWN"]))
+
+    def test_discord_text_is_escaped_and_capped(self):
+        from tracker.fanout import discord_escape, discord_payload
+        evil = "[careers.google.com/jobs/1](https://evil.example)"
+        self.assertNotIn("](", discord_escape(evil).replace("\\]\\(", ""))
+        self.assertEqual(discord_escape("Data *Intern* _2027_"), "Data \\*Intern\\* \\_2027\\_")
+        self.assertNotIn("\n", discord_escape("Intern\n# Fake heading\r\nline"))
+        payload = discord_payload("x" * 5000)
+        self.assertLessEqual(len(payload["content"]), 2000)
+        self.assertEqual(payload["allowed_mentions"], {"parse": []})
 
     def test_categories(self):
         self.assertTrue(_cats_match([], ["software"]))
@@ -284,6 +317,47 @@ class TestRemoval(unittest.TestCase):
         self.age_all()
         self.poll([])
         self.assertEqual(len(self.visible()), 2)
+
+    def test_truncated_fetch_hides_nothing(self):
+        # A fetch that stopped at its adapter's cap was cut off; postings
+        # missing from it are not known to be closed.
+        from tracker.adapters import Fetched
+        self.poll([self.A, self.B])
+        self.age_all()
+        capped = Fetched([self.A])
+        capped.truncated = True
+        self.poll(capped)  # B fell past the cap, but isn't closed
+        self.assertIn(self.B["title"], self.visible())
+        # ...and the same list without the flag does hide it.
+        self.poll(Fetched([self.A]))
+        self.assertNotIn(self.B["title"], self.visible())
+
+    def test_adapters_flag_truncation(self):
+        from tracker.adapters import WORKDAY_MAX_RESULTS, fetch_amazon, fetch_workday
+
+        def workday_page(n):
+            r = mock.Mock()
+            r.json.return_value = {"jobPostings": [
+                {"externalPath": f"/job/{n}-{i}", "title": "Intern", "locationsText": "CA"}
+                for i in range(20)]}
+            return r
+
+        endless = mock.Mock()
+        endless.post.side_effect = [workday_page(k) for k in range(WORKDAY_MAX_RESULTS // 20)]
+        wd = {"host": "a.wd1.myworkdayjobs.com", "tenant": "a", "site": "s"}
+        self.assertTrue(fetch_workday(wd, endless).truncated)
+
+        short = mock.Mock()
+        last = mock.Mock()
+        last.json.return_value = {"jobPostings": []}
+        short.post.side_effect = [workday_page(0), last]
+        self.assertFalse(fetch_workday(wd, short).truncated)
+
+        amazon = mock.Mock()
+        amazon.get.return_value.json.return_value = {"jobs": [{"title": "Intern"}] * 100}
+        self.assertTrue(fetch_amazon({"name": "Amazon"}, amazon).truncated)
+        amazon.get.return_value.json.return_value = {"jobs": [{"title": "Intern"}] * 7}
+        self.assertFalse(fetch_amazon({"name": "Amazon"}, amazon).truncated)
 
     def test_within_grace_period_is_kept(self):
         self.poll([self.A, self.B])

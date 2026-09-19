@@ -45,9 +45,11 @@ def poll_career_pages(cfg, conn, only_company=None):
         if only_company and name.lower() != only_company.lower():
             continue
         try:
-            raw, seen_urls = [], set()
+            raw, seen_urls, truncated = [], set(), False
             for hint, variant in _fetch_variants(company):
-                for j in fetch_company(variant):
+                fetched = fetch_company(variant)
+                truncated = truncated or getattr(fetched, "truncated", False)
+                for j in fetched:
                     if j["url"] in seen_urls:
                         continue
                     seen_urls.add(j["url"])
@@ -73,7 +75,11 @@ def poll_career_pages(cfg, conn, only_company=None):
             db.record_health(conn, f"career:{name}", True)
             # An empty board is more likely a broken adapter than a company
             # closing every role at once, so it never triggers cleanup.
-            closed = db.hide_closed_career_postings(conn, name, grace) if raw else 0
+            # A fetch that stopped at its adapter's result cap was cut off, so
+            # a posting missing from it may still be live; don't treat that as
+            # closed.
+            closed = (db.hide_closed_career_postings(conn, name, grace)
+                      if raw and not truncated else 0)
             print(f"[career] {name}: {len(raw)} fetched, {len(seen_ids)} matched filters"
                   + (f", {closed} closed" if closed else ""))
         except Exception as e:

@@ -3,7 +3,7 @@ import json
 
 import requests
 
-from .fanout import discord_payload
+from .fanout import discord_escape, discord_payload
 
 
 def _toast(title, body, url=None):
@@ -55,7 +55,8 @@ def notify_new_postings(cfg, rows):
         if desktop:
             _toast(summary, detail)
         if webhook:
-            _discord(webhook, f"**{summary}**\n{detail}\nOpen the dashboard to review them.")
+            safe = ", ".join(f"{discord_escape(c)}: {k}" for c, k in sorted(companies.items()))
+            _discord(webhook, f"**{summary}**\n{safe}\nOpen the dashboard to review them.")
         return
 
     for r in rows:
@@ -64,5 +65,6 @@ def notify_new_postings(cfg, rows):
         if desktop:
             _toast(title, body or "new internship posting", r["url"])
         if webhook:
-            loc = f" ({r['location']})" if r["location"] else ""
-            _discord(webhook, f"**New internship** — {r['company']}: {r['title']}{loc}\n{r['url']}")
+            loc = f" ({discord_escape(r['location'])})" if r["location"] else ""
+            _discord(webhook, f"**New internship** — {discord_escape(r['company'])}: "
+                              f"{discord_escape(r['title'])}{loc}\n{r['url']}")

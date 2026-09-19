@@ -124,6 +124,7 @@ def get_with_backoff(session, url, label, waits=(20, 60), max_wait=90, **kwargs)
         # then rejects; a bad header should fall back, not abort the fetch.
         sane = header.isascii() and header.isdigit() and len(header) <= 6
         wait = min(int(header), max_wait) if sane else fallback
-        print(f"[retry] {label}: HTTP 429 (Retry-After: {header or 'none'}),"
+        shown = repr(header[:40]) if header else "none"  # server-controlled text
+        print(f"[retry] {label}: HTTP 429 (Retry-After: {shown}),"
               f" waiting {wait}s, attempt {attempt + 2}")
         time.sleep(wait)

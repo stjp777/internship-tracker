@@ -9,6 +9,7 @@ keeps their old watermark and is retried on the next run, and one user's
 outage never swallows another's notifications.
 """
 import json
+import re
 import time
 
 import requests
@@ -33,9 +34,21 @@ def _cats_match(user_cats, posting_cats):
     return bool(set(user_cats) & set(posting_cats))
 
 
+DISCORD_MAX_CHARS = 1900  # Discord rejects content over 2000 with HTTP 400
+
+
+def discord_escape(text):
+    """Neutralise Discord markdown in untrusted posting text, so a title like
+    "[careers.google.com](https://evil.example)" can't render as a masked link."""
+    one_line = re.sub(r"[\r\n]+", " ", str(text or ""))  # no forged extra lines
+    return re.sub(r"([\\*_`~|>\[\]()<])", r"\\\1", one_line)
+
+
 def discord_payload(content):
     # Posting text is untrusted; without this, a job title containing
     # "@everyone" would ping the whole server.
+    if len(content) > DISCORD_MAX_CHARS:
+        content = content[:DISCORD_MAX_CHARS - 1] + "…"
     return {"content": content, "allowed_mentions": {"parse": []}}
 
 
@@ -94,14 +107,16 @@ def fan_out(cfg, conn):
                 companies = {}
                 for r in matched:
                     companies[r["company"]] = companies.get(r["company"], 0) + 1
-                detail = ", ".join(f"{c}: {n}" for c, n in sorted(companies.items()))
+                detail = ", ".join(f"{discord_escape(c)}: {n}"
+                                   for c, n in sorted(companies.items()))
                 _post(webhook, f"**{len(matched)} new internship postings** (bulk)\n{detail}")
             else:
                 for r in matched:
-                    loc = f" ({r['location']})" if r["location"] else ""
+                    loc = f" ({discord_escape(r['location'])})" if r["location"] else ""
                     cats = "/".join(json.loads(r["categories"] or "[]") or ["general"])
                     _post(webhook,
-                          f"**New {cats} internship** — {r['company']}: {r['title']}{loc}\n{r['url']}")
+                          f"**New {cats} internship** — {discord_escape(r['company'])}: "
+                          f"{discord_escape(r['title'])}{loc}\n{r['url']}")
             # Only advance past postings we actually delivered; a failed
             # webhook leaves the watermark alone so the next run retries.
             db.set_user_watermark(conn, u["name"], highest)

@@ -1,21 +1,28 @@
 """Decide whether a raw posting is a relevant undergrad internship."""
 import re
 
+from .locations import REMOTE, UNKNOWN, state_tokens
+
 # US signals: country names, state abbreviations after a comma, or "US Remote"-style
 US_RE = re.compile(
     r"United States|USA|\bU\.?S\.?\b|,\s*(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|"
     r"LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|"
     r"VA|WA|WV|WI|WY|DC)\b", re.I)
-# Obvious non-US markers, used to decide whether a bare "Remote" is US remote
+# Obvious non-US markers, used to decide whether a bare "Remote" is US remote.
+# Whole words only: bare "India" would otherwise match "Indiana".
 FOREIGN_RE = re.compile(
-    r"United Kingdom|\bUK\b|London|Canada|Toronto|Vancouver|Montreal|India|Bangalore|Bengaluru|"
+    r"\b(Tbilisi|Batumi|Kutaisi|Rustavi|"  # the country Georgia, not the state
+    r"United Kingdom|UK|London|Canada|Toronto|Vancouver|Montreal|India|Bangalore|Bengaluru|"
     r"Hyderabad|Gurgaon|Mumbai|China|Shanghai|Beijing|Suzhou|Shenzhen|Japan|Tokyo|Germany|"
     r"Munich|Berlin|Hamburg|Ireland|Dublin|Cork|Singapore|Israel|Tel Aviv|Haifa|Switzerland|"
     r"Zurich|France|Paris|Netherlands|Amsterdam|Spain|Madrid|Poland|Warsaw|Australia|Sydney|"
-    r"Melbourne|Brazil|Mexico|Taiwan|Taipei|Korea|Seoul|Sweden|Denmark|Italy|Austria|Czech|"
+    r"Melbourne|Brazil|(?<!New )Mexico|Taiwan|Taipei|Korea|Seoul|Sweden|Denmark|Italy|Austria|Czech|"
     r"Romania|Hungary|Belgium|Norway|Finland|Portugal|Egypt|Nigeria|Kenya|Vietnam|Thailand|"
     r"Philippines|Indonesia|Malaysia|Hong Kong|New Zealand|Argentina|Colombia|Chile|Costa Rica|"
-    r"United Arab Emirates|Dubai|Saudi|Qatar|Turkey|South Africa", re.I)
+    r"United Arab Emirates|Dubai|Saudi|Qatar|Turkey|South Africa)\b", re.I)
+# "Toronto, ON, CA": here CA is Canada's country code, not California
+# (uppercase only, so it can't match prose).
+CANADA_CODE_RE = re.compile(r"\b(ON|BC|QC|AB|MB|SK|NS|NB|NL|PE)\s*,\s*CA\b")
 REMOTE_RE = re.compile(r"\bremote\b|\bvirtual\b", re.I)
 UNKNOWN_RE = re.compile(r"^\s*$|^\d+\s+locations?$", re.I)  # e.g. Adobe's "3 Locations"
 
@@ -56,7 +63,13 @@ class PostingFilter:
         loc = location or ""
         if UNKNOWN_RE.match(loc):
             return True  # no info to judge by; the title/term filters still apply
+        if CANADA_CODE_RE.search(loc):
+            return False
         if US_RE.search(loc):
+            return True
+        # Full state names / bare US cities ("Dallas, Texas", "San Francisco")
+        if not FOREIGN_RE.search(loc) and any(
+                t not in (UNKNOWN, REMOTE) for t in state_tokens(loc)):
             return True
         if REMOTE_RE.search(loc) and not FOREIGN_RE.search(loc):
             return True

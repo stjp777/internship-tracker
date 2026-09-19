@@ -15,6 +15,13 @@ from .http_util import BROWSER_HEADERS, get_with_backoff, make_session, robots_a
 TIMEOUT = 30
 
 
+class Fetched(list):
+    """A list of postings that also says whether the adapter stopped at its
+    result cap. A cut-off list can't tell us which postings have closed, so
+    the poller must not hide anything based on it."""
+    truncated = False
+
+
 def fetch_greenhouse(company, session):
     board = company["board"]
     r = session.get(
@@ -67,11 +74,14 @@ def fetch_ashby(company, session):
     return out
 
 
+WORKDAY_MAX_RESULTS = 400  # relevance-sorted, so intern roles surface early
+
+
 def fetch_workday(company, session):
     host, tenant, site = company["host"], company["tenant"], company["site"]
     url = f"https://{host}/wday/cxs/{tenant}/{site}/jobs"
-    out, offset, seen = [], 0, set()
-    while offset < 400:  # relevance-sorted; intern roles surface early
+    out, offset, seen = Fetched(), 0, set()
+    while offset < WORKDAY_MAX_RESULTS:
         r = session.post(url, json={
             "appliedFacets": {}, "limit": 20, "offset": offset,
             "searchText": company.get("search", "intern"),
@@ -97,12 +107,14 @@ def fetch_workday(company, session):
         if added == 0:
             break
         offset += 20
+    else:
+        out.truncated = True  # read every allowed page and never ran dry
     return out
 
 
 def fetch_eightfold(company, session):
     host = company["host"]
-    out, start = [], 0
+    out, start = Fetched(), 0
     while start < 100:  # API returns 10 per page
         params = {"domain": company["domain"], "query": company.get("search", "intern"),
                   "start": start, "num": 10, "sort_by": "timestamp"}
@@ -127,6 +139,8 @@ def fetch_eightfold(company, session):
                 "description": "",
             })
         start += 10
+    else:
+        out.truncated = True
     return out
 
 
@@ -139,7 +153,7 @@ def fetch_amazon(company, session):
         "https://www.amazon.jobs/en/search.json", params=params,
         timeout=TIMEOUT)
     r.raise_for_status()
-    out = []
+    out = Fetched()
     for j in r.json().get("jobs", []):
         out.append({
             "title": j.get("title", ""),
@@ -149,6 +163,7 @@ def fetch_amazon(company, session):
             "description": (j.get("description") or "")[:2000]
                            + " " + (j.get("basic_qualifications") or "")[:2000],
         })
+    out.truncated = len(out) >= params["result_limit"]
     return out
 
 
@@ -159,7 +174,7 @@ def fetch_apple(company, session):
         page_url += f"&location={company['location']}"
     if not robots_allows(page_url):
         raise RuntimeError("robots.txt disallows fetching Apple search page")
-    out = []
+    out = Fetched()
     for page in (1, 2, 3):
         r = session.get(f"{page_url}&page={page}", timeout=TIMEOUT)
         r.raise_for_status()
@@ -181,6 +196,8 @@ def fetch_apple(company, session):
             })
         if len(results) < 20:
             break
+    else:
+        out.truncated = True  # a full page 3, so there may be more
     return out
 
 
@@ -188,7 +205,7 @@ def fetch_google(company, session):
     base = "https://www.google.com/about/careers/applications/jobs/results/"
     if not robots_allows(base + "?q=intern"):
         raise RuntimeError("robots.txt disallows fetching Google careers page")
-    out, seen = [], set()
+    out, seen = Fetched(), set()
     for page in (1, 2, 3, 4, 5):
         params = {"q": company.get("search", "intern"),
                   "target_level": "INTERN_AND_APPRENTICE", "page": page}
@@ -228,6 +245,8 @@ def fetch_google(company, session):
             })
         if new_on_page == 0:
             break
+    else:
+        out.truncated = True
     return out
 
 
@@ -264,7 +283,7 @@ def fetch_meta(company, session):
                            % d["errors"][0].get("message", "?")[:200])
     jobs = (d.get("data", {}).get("job_search_with_featured_jobs")
             or d.get("data", {}).get("job_search_with_featured_jobs_v2") or {})
-    out = []
+    out = Fetched()
     for j in jobs.get("all_jobs", []):
         out.append({
             "title": j.get("title", "").strip(),
@@ -273,6 +292,7 @@ def fetch_meta(company, session):
             "posted_at": "",
             "description": " ".join(j.get("teams", []) + j.get("sub_teams", [])),
         })
+    out.truncated = len(out) >= 100  # results_per_page: HUNDRED
     return out
 
 

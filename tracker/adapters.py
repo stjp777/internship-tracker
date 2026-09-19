@@ -77,17 +77,45 @@ def fetch_ashby(company, session):
 WORKDAY_MAX_RESULTS = 400  # relevance-sorted, so intern roles surface early
 
 
+WORKDAY_RETRY_WAITS = (10, 30)  # GitHub's shared runner IPs get throttled or challenged
+
+
+def _workday_page(session, url, payload, label):
+    """POST one results page, retrying when Workday throttles or answers with
+    something that isn't JSON (a bot challenge or an empty body). The final
+    error names the status and content type so the Actions log shows why."""
+    for wait in (*WORKDAY_RETRY_WAITS, None):
+        r = session.post(url, json=payload, timeout=TIMEOUT)
+        problem = None
+        if r.status_code in (429, 502, 503, 504):
+            problem = f"HTTP {r.status_code}"
+        else:
+            r.raise_for_status()
+            try:
+                return r.json().get("jobPostings", [])
+            except ValueError:
+                if "currently unavailable" in (r.text or "")[:4000].lower():
+                    # Workday's static maintenance page; waiting seconds won't help.
+                    raise RuntimeError(f"workday {label}: Workday is down for "
+                                       "maintenance or an outage") from None
+                problem = f"non-JSON reply (HTTP {r.status_code}, {r.headers.get('Content-Type', '?')[:40]})"
+        if wait is None:
+            raise RuntimeError(f"workday {label}: {problem}")
+        print(f"[retry] {label}: {problem}, waiting {wait}s")
+        time.sleep(wait)
+
+
 def fetch_workday(company, session):
     host, tenant, site = company["host"], company["tenant"], company["site"]
     url = f"https://{host}/wday/cxs/{tenant}/{site}/jobs"
     out, offset, seen = Fetched(), 0, set()
     while offset < WORKDAY_MAX_RESULTS:
-        r = session.post(url, json={
+        if offset:
+            time.sleep(0.5)  # 20 requests back to back from one IP look like a bot
+        posts = _workday_page(session, url, {
             "appliedFacets": {}, "limit": 20, "offset": offset,
             "searchText": company.get("search", "intern"),
-        }, timeout=TIMEOUT)
-        r.raise_for_status()
-        posts = r.json().get("jobPostings", [])
+        }, company.get("name", tenant))
         if not posts:
             break
         added = 0

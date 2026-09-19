@@ -332,6 +332,52 @@ class TestRemoval(unittest.TestCase):
         self.poll(Fetched([self.A]))
         self.assertNotIn(self.B["title"], self.visible())
 
+    def test_workday_retries_then_recovers(self):
+        from tracker.adapters import fetch_workday
+        bad = mock.Mock(status_code=200, headers={"Content-Type": "text/html"}, text="<html>challenge</html>")
+        bad.json.side_effect = ValueError("not json")
+        throttled = mock.Mock(status_code=503, headers={})
+        good = mock.Mock(status_code=200, headers={})
+        good.json.return_value = {"jobPostings": [
+            {"externalPath": "/job/1", "title": "Intern", "locationsText": "CA"}]}
+        empty = mock.Mock(status_code=200, headers={})
+        empty.json.return_value = {"jobPostings": []}
+        session = mock.Mock()
+        session.post.side_effect = [bad, throttled, good, empty]
+        wd = {"name": "Acme", "host": "a.wd1.myworkdayjobs.com", "tenant": "a", "site": "s"}
+        with mock.patch("tracker.adapters.time.sleep") as sleep, \
+                mock.patch("sys.stdout", io.StringIO()):
+            jobs = fetch_workday(wd, session)
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list][:2], [10, 30])
+
+    def test_workday_maintenance_page_fails_fast(self):
+        from tracker.adapters import fetch_workday
+        page = mock.Mock(status_code=200, headers={"Content-Type": "text/html"},
+                         text="<title>Workday is currently unavailable.</title>")
+        page.json.side_effect = ValueError("not json")
+        session = mock.Mock()
+        session.post.side_effect = [page, page, page]
+        wd = {"name": "Acme", "host": "a.wd1.myworkdayjobs.com", "tenant": "a", "site": "s"}
+        with mock.patch("tracker.adapters.time.sleep") as sleep:
+            with self.assertRaises(RuntimeError) as cm:
+                fetch_workday(wd, session)
+        self.assertIn("maintenance", str(cm.exception))
+        self.assertEqual((session.post.call_count, sleep.call_count), (1, 0))
+
+    def test_workday_gives_up_with_a_readable_error(self):
+        from tracker.adapters import fetch_workday
+        bad = mock.Mock(status_code=200, headers={"Content-Type": "text/html"}, text="<html>challenge</html>")
+        bad.json.side_effect = ValueError("not json")
+        session = mock.Mock()
+        session.post.side_effect = [bad, bad, bad]
+        wd = {"name": "Acme", "host": "a.wd1.myworkdayjobs.com", "tenant": "a", "site": "s"}
+        with mock.patch("tracker.adapters.time.sleep"), mock.patch("sys.stdout", io.StringIO()):
+            with self.assertRaises(RuntimeError) as cm:
+                fetch_workday(wd, session)
+        self.assertIn("non-JSON", str(cm.exception))
+        self.assertIn("text/html", str(cm.exception))
+
     def test_adapters_flag_truncation(self):
         from tracker.adapters import WORKDAY_MAX_RESULTS, fetch_amazon, fetch_workday
 
@@ -345,13 +391,14 @@ class TestRemoval(unittest.TestCase):
         endless = mock.Mock()
         endless.post.side_effect = [workday_page(k) for k in range(WORKDAY_MAX_RESULTS // 20)]
         wd = {"host": "a.wd1.myworkdayjobs.com", "tenant": "a", "site": "s"}
-        self.assertTrue(fetch_workday(wd, endless).truncated)
+        with mock.patch("tracker.adapters.time.sleep"):
+            self.assertTrue(fetch_workday(wd, endless).truncated)
 
-        short = mock.Mock()
-        last = mock.Mock()
-        last.json.return_value = {"jobPostings": []}
-        short.post.side_effect = [workday_page(0), last]
-        self.assertFalse(fetch_workday(wd, short).truncated)
+            short = mock.Mock()
+            last = mock.Mock()
+            last.json.return_value = {"jobPostings": []}
+            short.post.side_effect = [workday_page(0), last]
+            self.assertFalse(fetch_workday(wd, short).truncated)
 
         amazon = mock.Mock()
         amazon.get.return_value.json.return_value = {"jobs": [{"title": "Intern"}] * 100}

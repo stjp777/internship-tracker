@@ -168,6 +168,165 @@ companies:
     doc_id: "27807005005556827"
     website: meta.com
 
+  # --- Added Sep 2026: smaller/mid-size companies with ML or SWE intern reqs ---
+  # ML / data-science intern reqs seen (Summer 2027 or rolling)
+  - name: C3 AI
+    type: greenhouse
+    board: c3iot
+    website: c3.ai
+  - name: The Nuclear Company
+    type: greenhouse
+    board: thenuclearcompany
+    website: thenuclearcompany.com
+  - name: Nuro
+    type: greenhouse
+    board: nuro
+    website: nuro.ai
+  - name: Gecko Robotics
+    type: ashby
+    board: gecko-robotics
+    website: geckorobotics.com
+  - name: Skydio
+    type: ashby
+    board: skydio
+    website: skydio.com
+  - name: Shield AI
+    type: lever
+    board: shieldai
+    website: shield.ai
+  - name: Coinbase
+    type: greenhouse
+    board: coinbase
+    website: coinbase.com
+  # SWE / general intern reqs at lower-profile employers
+  - name: Gallup
+    type: greenhouse
+    board: gallup
+    website: gallup.com
+  - name: WhiteWater Midstream
+    type: greenhouse
+    board: whitewatermidstream
+    website: whitewatermidstream.com
+  - name: Anduril
+    type: greenhouse
+    board: andurilindustries
+    website: anduril.com
+  - name: Verkada
+    type: greenhouse
+    board: verkada
+    website: verkada.com
+  - name: Robinhood
+    type: greenhouse
+    board: robinhood
+    website: robinhood.com
+  # Mid-size tech with recurring intern classes (may not be posted yet)
+  - name: Klaviyo
+    type: greenhouse
+    board: klaviyocampus
+    website: klaviyo.com
+  - name: Cloudflare
+    type: greenhouse
+    board: cloudflare
+    website: cloudflare.com
+  - name: Roblox
+    type: greenhouse
+    board: roblox
+    website: roblox.com
+  - name: Pinterest
+    type: greenhouse
+    board: pinterest
+    website: pinterest.com
+  - name: Reddit
+    type: greenhouse
+    board: reddit
+    website: reddit.com
+  # Non-tech-brand employers (defense, industrial, health, finance, data/AI research)
+  - name: Applied Intuition
+    type: ashby
+    board: applied
+    website: appliedintuition.com
+  - name: Kitware
+    type: lever
+    board: kitware
+    website: kitware.com
+  - name: AeroVironment
+    type: workday
+    host: avav.wd1.myworkdayjobs.com
+    tenant: avav
+    site: AVAV
+    search: intern
+    website: avinc.com
+  - name: Northrop Grumman
+    type: workday
+    host: ngc.wd1.myworkdayjobs.com
+    tenant: ngc
+    site: Northrop_Grumman_External_Site
+    search: intern
+    website: northropgrumman.com
+  - name: Oshkosh
+    type: workday
+    host: oshkoshcorporation.wd5.myworkdayjobs.com
+    tenant: oshkoshcorporation
+    site: Oshkosh
+    search: software intern
+    website: oshkoshcorp.com
+  - name: Smith+Nephew
+    type: workday
+    host: smithnephew.wd5.myworkdayjobs.com
+    tenant: smithnephew
+    site: External
+    search: intern
+    website: smith-nephew.com
+  - name: Amgen
+    type: workday
+    host: amgen.wd1.myworkdayjobs.com
+    tenant: amgen
+    site: careers
+    search: intern
+    website: amgen.com
+  - name: NXP
+    type: workday
+    host: nxp.wd3.myworkdayjobs.com
+    tenant: nxp
+    site: careers
+    search: software intern
+    website: nxp.com
+  - name: S&P Global
+    type: workday
+    host: spgi.wd5.myworkdayjobs.com
+    tenant: spgi
+    site: SPGI_Careers
+    search: intern
+    website: spglobal.com
+  - name: Workiva
+    type: workday
+    host: workiva.wd503.myworkdayjobs.com
+    tenant: workiva
+    site: careers
+    search: intern
+    website: workiva.com
+  - name: Salesforce
+    type: workday
+    host: salesforce.wd12.myworkdayjobs.com
+    tenant: salesforce
+    site: External_Career_Site
+    search: intern 2027
+    website: salesforce.com
+  - name: LexisNexis
+    type: workday
+    host: relx.wd3.myworkdayjobs.com
+    tenant: relx
+    site: LexisNexisLegal
+    search: intern
+    website: lexisnexis.com
+  - name: Live Oak Bank
+    type: workday
+    host: liveoakbancshares.wd1.myworkdayjobs.com
+    tenant: liveoakbancshares
+    site: Live_Oak
+    search: intern
+    website: liveoak.bank
+
 # --- Removing closed postings ---
 # Postings are hidden from the feed, never deleted, and come back if the
 # company lists them again. Anything you marked Applied is always kept.

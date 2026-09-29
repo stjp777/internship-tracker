@@ -2,7 +2,7 @@
 {title, url, location, posted_at, description}
 
 Adapter types: greenhouse, lever, ashby, workday, eightfold, amazon,
-apple, google, meta. Add new companies in config.yaml; only add code here
+apple, google, meta, tiktok. Add new companies in config.yaml; only add code here
 for a genuinely new ATS.
 """
 import html as htmllib
@@ -105,6 +105,27 @@ def _workday_page(session, url, payload, label):
         time.sleep(wait)
 
 
+# Workday lists multi-site jobs as just "2 Locations", which hides e.g. a
+# Shanghai + Beijing intern role from the US filter. Only intern titles get the
+# extra detail request, so a company costs a handful of calls, not hundreds.
+MULTI_LOC_RE = re.compile(r"^\s*\d+\s+locations?\s*$", re.I)
+INTERN_RE = re.compile(r"\bintern", re.I)
+
+
+def _workday_locations(session, detail_url):
+    """Every location of one Workday job, or "" if the detail call fails."""
+    time.sleep(0.5)
+    try:
+        r = session.get(detail_url, timeout=TIMEOUT)
+        r.raise_for_status()
+        info = r.json()["jobPostingInfo"]
+        extra = info.get("additionalLocations")
+        locs = [info.get("location")] + (extra if isinstance(extra, list) else [])
+    except Exception:  # best effort: an odd reply must not fail the whole company
+        return ""
+    return "; ".join(l for l in locs if isinstance(l, str) and l)
+
+
 def fetch_workday(company, session):
     host, tenant, site = company["host"], company["tenant"], company["site"]
     url = f"https://{host}/wday/cxs/{tenant}/{site}/jobs"
@@ -125,10 +146,14 @@ def fetch_workday(company, session):
                 continue  # some tenants ignore `offset` and loop the same page
             seen.add(path)
             added += 1
+            location = j.get("locationsText") or ""
+            if (MULTI_LOC_RE.match(location) and isinstance(path, str)
+                    and INTERN_RE.search(j.get("title") or "")):
+                location = _workday_locations(session, url[:-len("/jobs")] + path) or location
             out.append({
                 "title": j.get("title", ""),
                 "url": f"https://{host}/en-US/{site}{path}",
-                "location": j.get("locationsText", ""),
+                "location": location,
                 "posted_at": j.get("postedOn", ""),
                 "description": "",
             })
@@ -324,6 +349,56 @@ def fetch_meta(company, session):
     return out
 
 
+TIKTOK_MAX_RESULTS = 1000
+
+
+def _tiktok_location(city):
+    """'San Jose, California, United States of America' from the nested
+    city -> state -> country chain, so the US/state filters can read it."""
+    parts = []
+    while isinstance(city, dict) and len(parts) < 5:
+        if isinstance(city.get("en_name"), str):
+            parts.append(city["en_name"])
+        city = city.get("parent")
+    return ", ".join(parts)
+
+
+def fetch_tiktok(company, session):
+    # `job_category_ids` narrows to tech roles server-side (see config.yaml).
+    out, offset = Fetched(), 0
+    while offset < TIKTOK_MAX_RESULTS:
+        if offset:
+            time.sleep(1)
+        r = session.post(
+            "https://api.lifeattiktok.com/api/v1/public/supplier/search/job/posts",
+            json={"keyword": company.get("search", "intern"), "limit": 100, "offset": offset,
+                  "job_category_id_list": company.get("job_category_ids", []),
+                  "recruitment_id_list": [], "subject_id_list": [], "location_code_list": []},
+            headers={"website-path": "tiktok", "Origin": "https://lifeattiktok.com",
+                     "Referer": "https://lifeattiktok.com/"},
+            timeout=TIMEOUT)
+        r.raise_for_status()
+        data = r.json().get("data") or {}
+        posts = data.get("job_post_list") or []
+        for j in posts:
+            job_id = str(j.get("id", ""))
+            if not re.fullmatch(r"[0-9]+", job_id):  # isdigit() accepts "²"
+                continue  # the url is built from this id, so it must be plain digits
+            out.append({
+                "title": j.get("title", ""),
+                "url": f"https://lifeattiktok.com/search/{job_id}",
+                "location": _tiktok_location(j.get("city_info")),
+                "posted_at": "",
+                "description": f"{j.get('description') or ''}\n{j.get('requirement') or ''}"[:4000],
+            })
+        offset += 100
+        if not posts or offset >= (data.get("count") or 0):
+            break
+    else:
+        out.truncated = True
+    return out
+
+
 ADAPTERS = {
     "greenhouse": fetch_greenhouse,
     "lever": fetch_lever,
@@ -334,6 +409,7 @@ ADAPTERS = {
     "apple": fetch_apple,
     "google": fetch_google,
     "meta": fetch_meta,
+    "tiktok": fetch_tiktok,
 }
 
 

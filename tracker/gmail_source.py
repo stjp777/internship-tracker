@@ -86,6 +86,11 @@ JOB_LINK_HOSTS = {"linkedin": "linkedin.com", "indeed": "indeed.com"}
 
 
 def _is_job_link(href, provider):
+    # Browsers read "\" as "/", so "https://evil\@linkedin.com/..." goes to
+    # evil while urlsplit sees linkedin.com. urlsplit also drops newlines the
+    # stored url would keep (forging extra Discord lines). Refuse both.
+    if re.search(r"[\s\\]", href):
+        return False
     parts = urlsplit(href)
     if parts.scheme.lower() not in ("http", "https"):
         return False

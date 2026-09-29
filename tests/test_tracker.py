@@ -104,6 +104,7 @@ class TestFilters(unittest.TestCase):
         self.assertTrue(self.pf.location_ok(""))  # unknown is kept
         self.assertFalse(self.pf.location_ok("Bengaluru"))
         self.assertFalse(self.pf.location_ok("London, UK"))
+        self.assertFalse(self.pf.location_ok("Remote - EMEA"))
 
     def test_us_only_location_full_state_names_and_bare_cities(self):
         self.assertTrue(self.pf.location_ok("Mountain View, California (HQ)"))
@@ -625,6 +626,53 @@ class TestRateLimitRetry(unittest.TestCase):
                 fetch_eightfold(company, session)
 
 
+class TestLocationResolution(unittest.TestCase):
+    def test_workday_multi_location_intern_is_resolved(self):
+        # NVIDIA listed a Shanghai + Beijing intern role as just "2 Locations",
+        # which slipped past the US filter as an unknown location.
+        from tracker.adapters import fetch_workday
+        page = mock.Mock(status_code=200, headers={})
+        page.json.return_value = {"jobPostings": [
+            {"externalPath": "/job/1", "title": "SWE Intern", "locationsText": "2 Locations"},
+            {"externalPath": "/job/2", "title": "SWE Intern", "locationsText": "2 Locations"},
+            {"externalPath": "/job/3", "title": "Sales Lead", "locationsText": "3 Locations"}]}
+        empty = mock.Mock(status_code=200, headers={})
+        empty.json.return_value = {"jobPostings": []}
+        china = mock.Mock()
+        china.json.return_value = {"jobPostingInfo": {
+            "location": "China, Shanghai", "additionalLocations": ["China, Beijing"]}}
+        session = mock.Mock()
+        session.post.side_effect = [page, empty]
+        session.get.side_effect = [china, requests.ConnectionError("down")]
+        wd = {"name": "Acme", "host": "a.wd1.myworkdayjobs.com", "tenant": "a", "site": "s"}
+        with mock.patch("tracker.adapters.time.sleep"):
+            jobs = fetch_workday(wd, session)
+        self.assertEqual(session.get.call_args_list[0].args[0],
+                         "https://a.wd1.myworkdayjobs.com/wday/cxs/a/s/job/1")
+        self.assertEqual(session.get.call_count, 2)  # the non-intern role isn't looked up
+        self.assertEqual([j["location"] for j in jobs],
+                         ["China, Shanghai; China, Beijing", "2 Locations", "3 Locations"])
+        self.assertFalse(PostingFilter(CFG).location_ok(jobs[0]["location"]))
+
+    def test_tiktok_builds_location_and_url_from_id(self):
+        from tracker.adapters import fetch_tiktok
+        us = {"en_name": "San Jose", "parent": {"en_name": "California",
+                                                "parent": {"en_name": "United States of America"}}}
+        resp = mock.Mock()
+        resp.json.return_value = {"data": {"count": 2, "job_post_list": [
+            {"id": "7675080308216154373", "title": "SWE Intern", "city_info": us},
+            {"id": "javascript:alert(1)", "title": "Bad", "city_info": us},
+            {"id": "12²", "title": "Bad", "city_info": us}]}}
+        session = mock.Mock()
+        session.post.return_value = resp
+        jobs = fetch_tiktok({"name": "TikTok"}, session)
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["url"], "https://lifeattiktok.com/search/7675080308216154373")
+        self.assertEqual(jobs[0]["location"], "San Jose, California, United States of America")
+        self.assertTrue(PostingFilter(CFG).location_ok(jobs[0]["location"]))
+        self.assertIn("CA", state_tokens(jobs[0]["location"]))
+
+
 class TestDashboard(unittest.TestCase):
     # SEC-01 and SEC-05
     def setUp(self):
@@ -749,6 +797,22 @@ class TestEmailParsing(unittest.TestCase):
         jobs = extract_jobs_from_html(html, "indeed")
         self.assertEqual(len(jobs), 1)
         self.assertEqual(jobs[0]["company"], "John Deere")
+
+    def test_links_browsers_read_differently_are_refused(self):
+        # A browser sends "\@" links to phish.example; a newline would forge
+        # extra lines in the Discord message, since urlsplit ignores it.
+        html = ('<a href="https://phish.example' + chr(92) + '@linkedin.com/jobs/view/12345">'
+                'Software Engineer Intern 2027</a>'
+                '<a href="https://www.linkedin.com/jobs/view/12346&#10;**URGENT** '
+                '[verify](https://phish.example)">Software Engineer Intern 2027</a>')
+        self.assertEqual(extract_jobs_from_html(html, "linkedin"), [])
+
+    def test_notification_links_are_plain_http(self):
+        from tracker.fanout import safe_link
+        self.assertEqual(safe_link("https://x.example/job/1"), "https://x.example/job/1")
+        for bad in ("ms-settings:privacy", "javascript:alert(1)",
+                    "https://x.example/1\n**fake line**", None):
+            self.assertEqual(safe_link(bad), "", bad)
 
 
 if __name__ == "__main__":

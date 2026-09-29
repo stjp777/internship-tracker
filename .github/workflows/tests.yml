@@ -31,7 +31,7 @@ jobs:
               if c.get("exclude_title"):
                   re.compile(c["exclude_title"])
           types = {"greenhouse","lever","ashby","workday","eightfold",
-                   "amazon","apple","google","meta"}
+                   "amazon","apple","google","meta","tiktok"}
           for co in cfg["companies"]:
               assert co["type"] in types, f"unknown adapter type: {co}"
           assert not cfg["notifications"]["discord_webhook"], \

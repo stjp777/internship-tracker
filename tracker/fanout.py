@@ -44,6 +44,16 @@ def discord_escape(text):
     return re.sub(r"([\\*_`~|>\[\]()<])", r"\\\1", one_line)
 
 
+def safe_link(url):
+    """The url if it's a plain http(s) link, else "". Guards the raw url line
+    in Discord messages (a newline would forge extra lines) and the desktop
+    toast, which hands its url to Windows (an ms-settings: link would run)."""
+    s = str(url or "")
+    if s.lower().startswith(("http://", "https://")) and not re.search(r"[\s\\]", s):
+        return s
+    return ""
+
+
 def discord_payload(content):
     # Posting text is untrusted; without this, a job title containing
     # "@everyone" would ping the whole server.
@@ -116,7 +126,7 @@ def fan_out(cfg, conn):
                     cats = "/".join(json.loads(r["categories"] or "[]") or ["general"])
                     _post(webhook,
                           f"**New {cats} internship** — {discord_escape(r['company'])}: "
-                          f"{discord_escape(r['title'])}{loc}\n{r['url']}")
+                          f"{discord_escape(r['title'])}{loc}\n{safe_link(r['url'])}")
             # Only advance past postings we actually delivered; a failed
             # webhook leaves the watermark alone so the next run retries.
             db.set_user_watermark(conn, u["name"], highest)

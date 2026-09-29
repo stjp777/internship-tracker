@@ -3,7 +3,7 @@ import json
 
 import requests
 
-from .fanout import discord_escape, discord_payload
+from .fanout import discord_escape, discord_payload, safe_link
 
 
 def _toast(title, body, url=None):
@@ -63,8 +63,8 @@ def notify_new_postings(cfg, rows):
         title = f"{r['company']}: {r['title']}"
         body = " | ".join(x for x in [r["location"], json.loads(r["sources"])[0]] if x)
         if desktop:
-            _toast(title, body or "new internship posting", r["url"])
+            _toast(title, body or "new internship posting", safe_link(r["url"]))
         if webhook:
             loc = f" ({discord_escape(r['location'])})" if r["location"] else ""
             _discord(webhook, f"**New internship** — {discord_escape(r['company'])}: "
-                              f"{discord_escape(r['title'])}{loc}\n{r['url']}")
+                              f"{discord_escape(r['title'])}{loc}\n{safe_link(r['url'])}")

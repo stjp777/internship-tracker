@@ -19,7 +19,8 @@ FOREIGN_RE = re.compile(
     r"Melbourne|Brazil|(?<!New )Mexico|Taiwan|Taipei|Korea|Seoul|Sweden|Denmark|Italy|Austria|Czech|"
     r"Romania|Hungary|Belgium|Norway|Finland|Portugal|Egypt|Nigeria|Kenya|Vietnam|Thailand|"
     r"Philippines|Indonesia|Malaysia|Hong Kong|New Zealand|Argentina|Colombia|Chile|Costa Rica|"
-    r"United Arab Emirates|Dubai|Saudi|Qatar|Turkey|South Africa)\b", re.I)
+    r"United Arab Emirates|Dubai|Saudi|Qatar|Turkey|South Africa|"
+    r"EMEA|APAC|LATAM|Europe)\b", re.I)  # "Remote - EMEA" is not US remote
 # "Toronto, ON, CA": here CA is Canada's country code, not California
 # (uppercase only, so it can't match prose).
 CANADA_CODE_RE = re.compile(r"\b(ON|BC|QC|AB|MB|SK|NS|NB|NL|PE)\s*,\s*CA\b")

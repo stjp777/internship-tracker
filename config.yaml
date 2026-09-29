@@ -33,7 +33,7 @@ filters:
     preferred_states: [CA, IN]
 
 # --- Company career pages ---
-# type: greenhouse | lever | ashby | workday | eightfold | amazon | apple | google | meta
+# type: greenhouse | lever | ashby | workday | eightfold | amazon | apple | google | meta | tiktok
 # website: the company's domain, used only to show its logo on the feed.
 companies:
   - name: Stripe
@@ -326,6 +326,92 @@ companies:
     site: Live_Oak
     search: intern
     website: liveoak.bank
+
+  # --- Added Sep 2026: popular tech / consumer apps (tech only, no finance) ---
+  - name: DoorDash
+    type: greenhouse
+    board: doordashusa
+    website: doordash.com
+  - name: Lyft
+    type: greenhouse
+    board: lyft
+    website: lyft.com
+  - name: Figma
+    type: greenhouse
+    board: figma
+    website: figma.com
+  - name: Waymo
+    type: greenhouse
+    board: waymo
+    website: waymo.com
+  - name: Epic Games
+    type: greenhouse
+    board: epicgames
+    website: epicgames.com
+  - name: Vercel
+    type: greenhouse
+    board: vercel
+    website: vercel.com
+  - name: Rubrik
+    type: greenhouse
+    board: rubrik
+    website: rubrik.com
+  - name: Samsara
+    type: greenhouse
+    board: samsara
+    website: samsara.com
+  # No intern reqs posted yet (Sep 2026); both usually post later in the fall
+  - name: Airbnb
+    type: greenhouse
+    board: airbnb
+    website: airbnb.com
+  - name: Instacart
+    type: greenhouse
+    board: instacart
+    website: instacart.com
+  - name: Palantir
+    type: lever
+    board: palantir
+    website: palantir.com
+  - name: Snowflake
+    type: ashby
+    board: snowflake
+    website: snowflake.com
+  - name: Intel
+    type: workday
+    host: intel.wd1.myworkdayjobs.com
+    tenant: intel
+    site: External
+    search: intern
+    website: intel.com
+  - name: Autodesk
+    type: workday
+    host: autodesk.wd1.myworkdayjobs.com
+    tenant: autodesk
+    site: Ext
+    search: intern
+    website: autodesk.com
+  - name: Motorola Solutions
+    type: workday
+    host: motorolasolutions.wd5.myworkdayjobs.com
+    tenant: motorolasolutions
+    site: Careers
+    search: intern
+    website: motorolasolutions.com
+  - name: Qualcomm
+    type: eightfold
+    host: careers.qualcomm.com
+    domain: qualcomm.com
+    search: intern
+    location: United States
+    website: qualcomm.com
+  - name: TikTok
+    type: tiktok
+    search: intern
+    # TikTok's own category ids, tech only: R&D (includes backend, frontend,
+    # algorithm, ML, security, testing...) and Data analysis.
+    job_category_ids: ["6704215862603155720", "6704216224387041544"]
+    website: tiktok.com
 
 # --- Removing closed postings ---
 # Postings are hidden from the feed, never deleted, and come back if the

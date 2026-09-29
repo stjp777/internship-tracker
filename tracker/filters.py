@@ -40,12 +40,17 @@ class PostingFilter:
         self.keep_if_no_term_info = bool(f.get("keep_if_no_term_info", True))
         # Role categories: [(name, include_re, exclude_re-or-None), ...]
         self.categories = []
+        # Optional per-category `states:` a posting must be in, e.g. software
+        # only in CA. Remote and unlisted locations always qualify.
+        self.category_states = {}
         for c in f.get("categories", []) or []:
             self.categories.append((
                 c["name"],
                 re.compile(c["include_title"], re.I),
                 re.compile(c["exclude_title"], re.I) if c.get("exclude_title") else None,
             ))
+            if c.get("states"):
+                self.category_states[c["name"]] = {s.upper() for s in c["states"]}
         # Postings that pass the gate but match no category get tagged
         # "general" (true) or dropped (false).
         self.keep_uncategorized = bool(f.get("keep_uncategorized", True))
@@ -75,6 +80,16 @@ class PostingFilter:
         if REMOTE_RE.search(loc) and not FOREIGN_RE.search(loc):
             return True
         return False
+
+    def in_region(self, cats, states):
+        """The categories whose `states:` rule these state tokens meet (see
+        locations.state_tokens). A posting keeps a category if it is offered
+        in one of its states, remotely, or its location isn't listed."""
+        states = set(states)
+        anywhere = bool(states & {REMOTE, UNKNOWN})
+        return [c for c in cats
+                if c not in self.category_states or anywhere
+                or states & self.category_states[c]]
 
     def is_preferred_state(self, state_field):
         from .locations import split_states

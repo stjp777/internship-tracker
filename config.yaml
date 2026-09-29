@@ -11,15 +11,21 @@ filters:
   exclude_title: '\b(phd|ph\.?d\.?|doctoral|postdoc|senior|staff|principal|director)\b'
   # Role categories. A posting can match several; postings that pass the
   # gate but match no category are tagged "general" (see keep_uncategorized).
+  # `states:` limits a category to postings in those states; remote and
+  # unlisted locations always count. Tech is for CA, finance for WA/IN.
   categories:
     - name: software
       include_title: '\b(software|swe|sde|developer|programmer|machine learning|artificial intelligence|ai\b|ai/ml|data (science|scientist|engineer(ing)?|analytics)|computer (science|vision)|research intern|student researcher|security|cyber|cloud|infrastructure|back[- ]?end|front[- ]?end|full[- ]?stack|web dev|mobile|ios\b|android|embedded|firmware|devops|sre\b|site reliability|platform|systems engineer|solutions? architect|robotics|autonomy|perception|compiler|gpu|graphics|quantum|technical program|technology)\b'
+      states: [CA]
     - name: finance
       include_title: '\b(finance|financial|accounting|accountant|treasury|audit(or|ing)?|fp&a|corporate development|investment (banking|management)|equity|asset management|wealth management|capital markets|m&a|tax|controller(ship)?|payroll|procurement|economics?|banking)\b'
+      states: [WA, IN]
     - name: quantitative
       include_title: '\b(quant(itative)?( finance| analyst| research(er)?)?|algo(rithmic)? trading|trading strategist|derivatives? trading|market mak(er|ing)|hedge fund)\b'
-  # Keep gate-passing postings that match no category, tagged "general":
-  keep_uncategorized: true
+      states: [WA, IN]
+  # Keep gate-passing postings that match no category, tagged "general"
+  # (mechanical, design, sales...). Off: the feed is tech and finance only.
+  keep_uncategorized: false
   # Timing filter: title or description must mention one of these (regex).
   # Lenient by default per spec: any 2026/2027 or season mention counts.
   term: '\b(2026|2027|summer|winter|spring|fall|autumn|co-?op)\b'

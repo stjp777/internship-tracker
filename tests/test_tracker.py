@@ -106,6 +106,19 @@ class TestFilters(unittest.TestCase):
         self.assertFalse(self.pf.location_ok("London, UK"))
         self.assertFalse(self.pf.location_ok("Remote - EMEA"))
 
+    def test_category_states(self):
+        f = dict(CFG["filters"], categories=[
+            {"name": "software", "include_title": r"\bsoftware\b", "states": ["CA"]},
+            {"name": "finance", "include_title": r"\bfinance\b", "states": ["WA", "IN"]}])
+        pf = PostingFilter({"filters": f})
+        both = ["finance", "software"]
+        self.assertEqual(pf.in_region(both, state_tokens("Austin, TX")), [])
+        self.assertEqual(pf.in_region(both, state_tokens("San Jose, CA; Seattle, WA")), both)
+        self.assertEqual(pf.in_region(both, state_tokens("Indianapolis, Indiana")), ["finance"])
+        self.assertEqual(pf.in_region(both, state_tokens("Remote - Texas")), both)
+        self.assertEqual(pf.in_region(both, state_tokens("United States")), both)  # unlisted
+        self.assertEqual(pf.in_region(["general"], state_tokens("Austin, TX")), ["general"])
+
     def test_us_only_location_full_state_names_and_bare_cities(self):
         self.assertTrue(self.pf.location_ok("Mountain View, California (HQ)"))
         self.assertTrue(self.pf.location_ok("Dallas, Texas"))

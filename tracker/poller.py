@@ -6,6 +6,7 @@ from . import db
 from .adapters import fetch_company
 from .filters import PostingFilter
 from .gmail_source import fetch_alert_jobs, gmail_available
+from .locations import state_tokens
 from .notify import notify_new_postings
 
 
@@ -63,6 +64,9 @@ def poll_career_pages(cfg, conn, only_company=None):
                     continue
                 if not pf.location_ok(j.get("location", ""),
                                       source_us_filtered=company.get("us_filtered", False)):
+                    continue
+                cats = pf.in_region(cats, state_tokens(j.get("location", "")))
+                if not cats:
                     continue
                 verdict, _id = db.upsert_posting(
                     conn, company=name, title=j["title"], url=j["url"],

@@ -204,6 +204,16 @@ def upsert_posting(conn, *, company, title, url, source, location="", posted_at=
             params.append(location)
             updates.append("state = ?")
             params.append(new_state)
+    elif location:
+        # The same role listed in another city (Palantir posts one title per
+        # office): add its states, or a Palo Alto copy would show as Denver.
+        old = set(row["state"].split(","))
+        new = set(states_str(location).split(",")) - {"UNKNOWN"}
+        if not new <= old:
+            updates.append("location = ?")
+            params.append(f"{row['location']}; {location}"[:500])
+            updates.append("state = ?")
+            params.append(",".join(sorted(old | new)))
     # Career-page URLs are canonical; prefer them over email-tracking links.
     if source == "career_page" and "career_page" not in json.loads(row["sources"]):
         updates.append("url = ?")

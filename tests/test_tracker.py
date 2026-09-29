@@ -222,6 +222,18 @@ class TestDb(unittest.TestCase):
         # career-page URL stays canonical, not the email tracking link
         self.assertEqual(row["url"], "https://acme.com/j/1")
 
+    def test_same_role_in_another_city_adds_its_state(self):
+        # Palantir lists one title per office; the Palo Alto copy must not
+        # stay recorded as Denver.
+        for loc in ("Denver, CO", "Palo Alto, CA", "Denver, CO"):
+            _, pid = db.upsert_posting(
+                self.conn, company="Palantir", title="Software Engineer, Internship",
+                url="https://jobs.lever.co/palantir/1", source="career_page",
+                location=loc, categories=["software"])
+        row = self.conn.execute("SELECT * FROM postings WHERE id=?", (pid,)).fetchone()
+        self.assertEqual(row["state"], "CA,CO")
+        self.assertEqual(row["location"], "Denver, CO; Palo Alto, CA")
+
     def test_state_populated_on_insert(self):
         _, pid = db.upsert_posting(
             self.conn, company="Acme", title="Intern", url="u",

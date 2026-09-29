@@ -408,9 +408,13 @@ companies:
   - name: TikTok
     type: tiktok
     search: intern
-    # TikTok's own category ids, tech only: R&D (includes backend, frontend,
-    # algorithm, ML, security, testing...) and Data analysis.
-    job_category_ids: ["6704215862603155720", "6704216224387041544"]
+    # TikTok's own category id for R&D (includes backend, frontend,
+    # algorithm, ML, security, testing...).
+    job_category_ids: ["6704215862603155720"]
+    # Only software / ML engineering roles; "Project Intern" is TikTok's
+    # part-time off-cycle track. Each role is listed once, not once per team.
+    include_title: '\b(software|machine learning|ml|back[- ]?end|front[- ]?end|full[- ]?stack|sde|ai)\b'
+    exclude_title: '\bproject intern\b|\bdata\b'
     website: tiktok.com
 
 # --- Removing closed postings ---

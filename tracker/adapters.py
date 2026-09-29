@@ -363,8 +363,20 @@ def _tiktok_location(city):
     return ", ".join(parts)
 
 
+# TikTok posts one role once per team: "Software Engineer Intern
+# (TikTok-Social-Friending) - 2027 Summer", "(General Hire) ... (Trust and
+# Safety)", often with full-width brackets.
+TIKTOK_TEAM_RE = re.compile(r"[(（][^()（）]*[)）]")
+
+
 def fetch_tiktok(company, session):
-    # `job_category_ids` narrows to tech roles server-side (see config.yaml).
+    # `job_category_ids` narrows to tech roles server-side and `include_title`
+    # / `exclude_title` to the roles worth listing (see config.yaml). Postings
+    # of one role are merged into a single entry that lists every city, so the
+    # feed shows each role once and a CA subscriber still sees it.
+    keep = re.compile(company.get("include_title", ""), re.I)
+    drop = re.compile(company["exclude_title"], re.I) if company.get("exclude_title") else None
+    roles = {}  # cleaned title -> {"title", "ids", "locs", "desc"}
     out, offset = Fetched(), 0
     while offset < TIKTOK_MAX_RESULTS:
         if offset:
@@ -384,18 +396,29 @@ def fetch_tiktok(company, session):
             job_id = str(j.get("id", ""))
             if not re.fullmatch(r"[0-9]+", job_id):  # isdigit() accepts "²"
                 continue  # the url is built from this id, so it must be plain digits
-            out.append({
-                "title": j.get("title", ""),
-                "url": f"https://lifeattiktok.com/search/{job_id}",
-                "location": _tiktok_location(j.get("city_info")),
-                "posted_at": "",
-                "description": f"{j.get('description') or ''}\n{j.get('requirement') or ''}"[:4000],
-            })
+            title = " ".join(TIKTOK_TEAM_RE.sub(" ", str(j.get("title") or "")).split())
+            if not keep.search(title) or (drop and drop.search(title)):
+                continue
+            role = roles.setdefault(title.lower(), {"title": title, "ids": [], "locs": [],
+                "desc": f"{j.get('description') or ''}\n{j.get('requirement') or ''}"[:4000]})
+            role["ids"].append(int(job_id))
+            loc = _tiktok_location(j.get("city_info"))
+            if loc and loc not in role["locs"]:
+                role["locs"].append(loc)
         offset += 100
         if not posts or offset >= (data.get("count") or 0):
             break
     else:
         out.truncated = True
+    for role in roles.values():
+        out.append({
+            "title": role["title"],
+            # lowest id, so the link stays put from one run to the next
+            "url": f"https://lifeattiktok.com/search/{min(role['ids'])}",
+            "location": "; ".join(sorted(role["locs"])),
+            "posted_at": "",
+            "description": role["desc"],
+        })
     return out
 
 

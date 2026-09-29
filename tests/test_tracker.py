@@ -672,6 +672,29 @@ class TestLocationResolution(unittest.TestCase):
         self.assertTrue(PostingFilter(CFG).location_ok(jobs[0]["location"]))
         self.assertIn("CA", state_tokens(jobs[0]["location"]))
 
+    def test_tiktok_lists_each_role_once(self):
+        from tracker.adapters import fetch_tiktok
+        sea = {"en_name": "Seattle", "parent": {"en_name": "Washington",
+                                               "parent": {"en_name": "United States of America"}}}
+        sj = {"en_name": "San Jose", "parent": {"en_name": "California",
+                                                "parent": {"en_name": "United States of America"}}}
+        resp = mock.Mock()
+        resp.json.return_value = {"data": {"count": 4, "job_post_list": [
+            {"id": "9", "title": "Software Engineer Intern (TikTok-Social) - 2027 Summer",
+             "city_info": sea},
+            {"id": "5", "title": "(General Hire) Software Engineer Intern（Trust and Safety）"
+                                 "- 2027 Summer", "city_info": sj},
+            {"id": "7", "title": "Data Engineer Intern (Ads) - 2027 Summer", "city_info": sj},
+            {"id": "8", "title": "Software Engineer Project Intern (Ads) - 2026 Start",
+             "city_info": sj}]}}
+        session = mock.Mock()
+        session.post.return_value = resp
+        jobs = fetch_tiktok({"name": "TikTok", "include_title": r"\bsoftware\b|\bdata\b",
+                             "exclude_title": r"\bproject intern\b|\bdata\b"}, session)
+        self.assertEqual([j["title"] for j in jobs], ["Software Engineer Intern - 2027 Summer"])
+        self.assertEqual(jobs[0]["url"], "https://lifeattiktok.com/search/5")  # lowest id
+        self.assertLessEqual({"CA", "WA"}, set(state_tokens(jobs[0]["location"])))
+
 
 class TestDashboard(unittest.TestCase):
     # SEC-01 and SEC-05
